@@ -19,16 +19,24 @@ for _d in [DATA_DIR, LOG_DIR, RESULT_DIR]:
     _d.mkdir(parents=True, exist_ok=True)
 
 # ── Environment ────────────────────────────────────────────────────────────────
-# Search order: project root .env → home-dir Mac path (local dev fallback)
-_env_candidates = [
-    ROOT_DIR / "Binance.env",
-    ROOT_DIR / ".env",
-    Path.home() / "Desktop" / "SMU 3rd Sem" / "QF635 Market Microstructure" / "Binance.env",
-]
-for _env_path in _env_candidates:
+# Looks for Binance.env or .env in the project root.
+# On the server: create /opt/crypto_algo/Binance.env with your keys.
+# Locally:       create crypto_algo/Binance.env (it is gitignored).
+_env_loaded = False
+for _env_path in [ROOT_DIR / "Binance.env", ROOT_DIR / ".env"]:
     if _env_path.exists():
         load_dotenv(_env_path)
+        _env_loaded = True
         break
+
+if not _env_loaded:
+    import warnings
+    warnings.warn(
+        f"No Binance.env or .env found in {ROOT_DIR}. "
+        "Create one with BINANCE_API_KEY / BINANCE_API_SECRET / "
+        "BINANCE_TESTNET_API_KEY / BINANCE_TESTNET_API_SECRET.",
+        stacklevel=2,
+    )
 
 API_KEY            = os.getenv("BINANCE_API_KEY")
 API_SECRET         = os.getenv("BINANCE_API_SECRET")
