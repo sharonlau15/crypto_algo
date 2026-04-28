@@ -11,6 +11,7 @@ Uses scipy.optimize for transparency (no black-box library).
 Fallback: equal-weight if optimization fails (never leaves flat).
 """
 
+import warnings
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
@@ -102,15 +103,17 @@ def max_sharpe_optimize(
     w0 = sig / (np.abs(sig).sum() + 1e-8) * max_w_sum
     w0 = np.clip(w0, *(bounds[0]))
 
-    result = minimize(
-        fun         = neg_sharpe,
-        x0          = w0,
-        jac         = neg_sharpe_grad,
-        method      = "SLSQP",
-        bounds      = bounds,
-        constraints = constraints,
-        options     = {"maxiter": 1000, "ftol": 1e-9},
-    )
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy")
+        result = minimize(
+            fun         = neg_sharpe,
+            x0          = w0,
+            jac         = neg_sharpe_grad,
+            method      = "SLSQP",
+            bounds      = bounds,
+            constraints = constraints,
+            options     = {"maxiter": 1000, "ftol": 1e-9},
+        )
 
     if not result.success:
         logger.debug(f"Optimizer: {result.message} — falling back to equal-weight")
