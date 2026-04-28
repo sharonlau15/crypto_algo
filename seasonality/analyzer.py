@@ -88,7 +88,7 @@ class SeasonalityAnalyzer:
         for name, result in self.results.items():
             r = result.portfolio_returns.copy()
             r.index = pd.to_datetime(r.index)
-            monthly = r.resample("ME").apply(
+            monthly = r.resample("M").apply(
                 lambda x: x.mean() / x.std() * np.sqrt(12) if x.std() > 0 else 0
             )
             monthly.index = monthly.index.month
