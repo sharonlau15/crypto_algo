@@ -87,6 +87,19 @@ def load_live_data():
         return json.load(f)
 
 
+@st.cache_data(ttl=30)
+def load_strategy_monitor_data():
+    state_file = RESULT_DIR / "live_state.json"
+    if not state_file.exists():
+        return None
+    with open(state_file) as f:
+        state = json.load(f)
+    return {
+        "hypothetical":      state.get("hypothetical", {}),
+        "active_strategies": state.get("active_strategies", []),
+    }
+
+
 def load_last_close_prices() -> dict:
     """Read the most recent close price for each symbol from cached parquet files."""
     prices = {}
@@ -118,7 +131,7 @@ with st.sidebar:
     st.header("📊 Crypto Dashboard")
     section = st.radio(
         "Section",
-        ["📊 Backtest Analysis", "🟢 Live Trading (Testnet)"],
+        ["📊 Backtest Analysis", "🟢 Live Trading (Testnet)", "📈 Strategy Monitor"],
         index=0,
     )
     st.markdown("---")
@@ -142,7 +155,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.caption(f"Updated: {datetime.now().strftime('%H:%M:%S')}")
-    if section == "🟢 Live Trading (Testnet)":
+    if section in ["🟢 Live Trading (Testnet)", "📈 Strategy Monitor"]:
         if st.button("🔄 Refresh live data"):
             st.cache_data.clear()
             st.rerun()
@@ -624,6 +637,184 @@ elif section == "🟢 Live Trading (Testnet)":
     h, rem = divmod(int(time_to_next.total_seconds()), 3600)
     m = rem // 60
     st.info(f"Next scheduled rebalance: **{next_06.strftime('%Y-%m-%d 06:00 UTC')}** (in {h}h {m}m)")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 3 — STRATEGY MONITOR (Hypothetical paper portfolios)
+# ══════════════════════════════════════════════════════════════════════════════
+elif section == "📈 Strategy Monitor":
+    st.title("📈 Strategy Monitor")
+    st.markdown(
+        "Each of the 10 strategies runs as an independent **$10,000 hypothetical paper portfolio** "
+        "updated every signal cycle. Strategies selected by the seasonality/regime layer are shown "
+        "with **★** — compare their live hypothetical performance against backtest predictions."
+    )
+    st.markdown("---")
+
+    monitor_data = load_strategy_monitor_data()
+    bt_data      = load_backtest_data()
+
+    if monitor_data is None or not monitor_data.get("hypothetical"):
+        st.warning(
+            "No strategy monitor data yet.\n\n"
+            "Start the live engine and wait for the first signal cycle:\n"
+            "```\npython main.py --mode live --run-now\n```\n"
+            "Hypothetical portfolios are initialised on the first cycle and updated every hour."
+        )
+        st.stop()
+
+    hypo          = monitor_data["hypothetical"]
+    active_strats = monitor_data["active_strategies"]
+    bt_metrics    = bt_data.get("metrics", {})
+
+    # ── Summary table ─────────────────────────────────────────────────────────
+    st.subheader("Performance Summary")
+    rows = []
+    for name, data in hypo.items():
+        nav_val   = float(data.get("nav", STARTING_CAPITAL))
+        ret_pct   = (nav_val - STARTING_CAPITAL) / STARTING_CAPITAL * 100
+        bt_sharpe = bt_metrics.get(name, {}).get("sharpe")
+        is_active = name in active_strats
+        rows.append({
+            "Strategy":        name,
+            "Active":          "★ LIVE" if is_active else "—",
+            "Hypo NAV":        f"${nav_val:,.2f}",
+            "Total Return":    f"{ret_pct:+.2f}%",
+            "Backtest Sharpe": f"{bt_sharpe:.2f}" if bt_sharpe is not None else "—",
+            "Updates":         len(data.get("nav_history", [])),
+        })
+    if rows:
+        summary_df = pd.DataFrame(rows).set_index("Strategy")
+        st.dataframe(
+            summary_df.style.applymap(
+                lambda v: "color: #22c55e; font-weight: bold" if v == "★ LIVE" else "",
+                subset=["Active"],
+            ),
+            use_container_width=True,
+        )
+        if active_strats:
+            st.caption(
+                f"★ LIVE = currently blended by the seasonality/regime layer: "
+                f"**{', '.join(active_strats)}**"
+            )
+
+    st.markdown("---")
+
+    # ── NAV History chart — all strategies ───────────────────────────────────
+    st.subheader("Hypothetical NAV History — All Strategies")
+    colors = px.colors.qualitative.Plotly + px.colors.qualitative.Dark24
+    fig = go.Figure()
+
+    for i, (name, data) in enumerate(hypo.items()):
+        hist = data.get("nav_history", [])
+        if len(hist) < 2:
+            continue
+        hist_df = pd.DataFrame(hist)
+        hist_df["date"] = pd.to_datetime(hist_df["date"])
+        hist_df["nav"]  = pd.to_numeric(hist_df["nav"])
+        is_active       = name in active_strats
+        fig.add_trace(go.Scatter(
+            x=hist_df["date"], y=hist_df["nav"],
+            mode="lines", name=name,
+            line=dict(
+                width=3 if is_active else 1.5,
+                color=colors[i % len(colors)],
+                dash="solid" if is_active else "dot",
+            ),
+        ))
+
+    fig.add_hline(
+        y=STARTING_CAPITAL, line_dash="dash", line_color="#94a3b8",
+        annotation_text=f"Starting Capital ${STARTING_CAPITAL:,}",
+        annotation_position="bottom right",
+    )
+    if len(fig.data) > 0:
+        fig.update_layout(
+            xaxis_title="Date", yaxis_title="NAV (USDT)",
+            hovermode="x unified", height=520, template="plotly_white",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption("Active strategies (★) shown with solid, thicker lines. Others are dotted.")
+    else:
+        st.info(
+            "NAV history chart appears after the second signal cycle — "
+            "the first cycle establishes the baseline price, the second cycle computes returns."
+        )
+
+    st.markdown("---")
+
+    # ── Return bar chart comparison ───────────────────────────────────────────
+    st.subheader("Total Return Comparison")
+    ret_rows = [
+        {
+            "Strategy": name,
+            "Return %": round((float(d.get("nav", STARTING_CAPITAL)) - STARTING_CAPITAL) / STARTING_CAPITAL * 100, 2),
+            "Active":   name in active_strats,
+        }
+        for name, d in hypo.items()
+    ]
+    if ret_rows:
+        ret_df = pd.DataFrame(ret_rows).sort_values("Return %", ascending=False)
+        bar_colors = [
+            "#22c55e" if row["Active"] else ("#ef4444" if row["Return %"] < 0 else "#60a5fa")
+            for _, row in ret_df.iterrows()
+        ]
+        bar_fig = go.Figure(go.Bar(
+            x=ret_df["Strategy"], y=ret_df["Return %"],
+            marker_color=bar_colors,
+            text=[f"{v:+.2f}%" for v in ret_df["Return %"]],
+            textposition="outside",
+        ))
+        bar_fig.add_hline(y=0, line_color="#94a3b8")
+        bar_fig.update_layout(
+            xaxis_title="Strategy", yaxis_title="Total Return (%)",
+            height=380, template="plotly_white",
+            xaxis_tickangle=-30,
+        )
+        st.plotly_chart(bar_fig, use_container_width=True)
+        st.caption("Green = currently active strategy. Blue = positive return. Red = negative return.")
+
+    st.markdown("---")
+
+    # ── Per-strategy current weights ──────────────────────────────────────────
+    st.subheader("Current Would-Be Positions by Strategy")
+
+    strat_names  = list(hypo.keys())
+    cols_per_row = 2
+
+    for row_start in range(0, len(strat_names), cols_per_row):
+        cols = st.columns(cols_per_row)
+        for col_idx, name in enumerate(strat_names[row_start:row_start + cols_per_row]):
+            data    = hypo[name]
+            weights = data.get("weights", {})
+            nav_val = float(data.get("nav", STARTING_CAPITAL))
+            ret_pct = (nav_val - STARTING_CAPITAL) / STARTING_CAPITAL * 100
+            marker  = " ★" if name in active_strats else ""
+
+            with cols[col_idx]:
+                ret_color = "#22c55e" if ret_pct >= 0 else "#ef4444"
+                st.markdown(
+                    f"**{name}{marker}** &nbsp; "
+                    f"`${nav_val:,.0f}` "
+                    f"<span style='color:{ret_color}'>({ret_pct:+.1f}%)</span>",
+                    unsafe_allow_html=True,
+                )
+                pos_weights = {
+                    sym.replace("USDT", ""): w
+                    for sym, w in weights.items()
+                    if float(w) > 0.001
+                }
+                if pos_weights:
+                    w_df = (
+                        pd.DataFrame(list(pos_weights.items()), columns=["Token", "Weight"])
+                        .sort_values("Weight", ascending=False)
+                        .set_index("Token")
+                    )
+                    w_df["Weight"] = w_df["Weight"].apply(lambda x: f"{float(x)*100:.1f}%")
+                    st.dataframe(w_df, use_container_width=True)
+                else:
+                    st.caption("No long positions (holding cash)")
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────

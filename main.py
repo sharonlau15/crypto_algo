@@ -21,9 +21,10 @@ Usage
 import argparse
 import sys
 import os
+from pathlib import Path
 
-# Add project root to path for proper module resolution
-project_root = '/Users/sharonlau15/Desktop/SMU 3rd Sem/3in1Project/crypto_algo'
+# Resolve project root relative to this file so the script works on any machine
+project_root = str(Path(__file__).resolve().parent)
 sys.path.insert(0, project_root)
 os.chdir(project_root)
 

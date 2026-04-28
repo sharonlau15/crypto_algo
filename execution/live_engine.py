@@ -302,11 +302,32 @@ def execute_rebalance(target_weights: pd.Series, state: dict, nav: float,
 
 
 # ── Signal weight computation ──────────────────────────────────────────────────
+def _signal_to_weights(signal_series: pd.Series) -> pd.Series:
+    """Convert a raw signal series to capped, signal-proportional position weights."""
+    pos_sigs = signal_series[signal_series > 0].nlargest(MAX_LIVE_POSITIONS)
+    if pos_sigs.empty:
+        return pd.Series(0.0, index=UNIVERSE)
+    weights = pos_sigs / pos_sigs.sum()
+    for _ in range(20):
+        over = weights > MAX_POSITION_SIZE
+        if not over.any():
+            break
+        weights[over] = MAX_POSITION_SIZE
+        leftover = 1.0 - weights[over].sum()
+        uncapped = ~over
+        if uncapped.any() and weights[uncapped].sum() > 0:
+            weights[uncapped] = weights[uncapped] / weights[uncapped].sum() * leftover
+        else:
+            break
+    return weights.clip(upper=MAX_POSITION_SIZE).reindex(UNIVERSE, fill_value=0)
+
+
 def compute_target_weights(
     seasonality_analyzer,
     signals_dict: dict,
     close: pd.DataFrame,
-) -> pd.Series:
+) -> tuple:
+    """Return (target_weights, active_selection) for the LIVE portfolio."""
     selection = seasonality_analyzer.select_strategy(
         current_date=close.index[-1], top_n=2,
     )
@@ -315,33 +336,71 @@ def compute_target_weights(
     blended      = blend_signals(signals_dict, selection, close)
     current_sigs = blended.iloc[-1].reindex(UNIVERSE, fill_value=0)
 
-    # Take the top MAX_LIVE_POSITIONS tokens with positive signals
-    pos_sigs = current_sigs[current_sigs > 0].nlargest(MAX_LIVE_POSITIONS)
-
-    if pos_sigs.empty:
+    if current_sigs[current_sigs > 0].empty:
         logger.warning("No positive signals from active strategies — holding cash")
-        return pd.Series(0.0, index=UNIVERSE)
+        return pd.Series(0.0, index=UNIVERSE), selection
 
-    # Signal-proportional allocation with iterative capping at MAX_POSITION_SIZE.
-    # Iterative because capping one token frees up weight that must be redistributed
-    # to the remaining tokens (which may then also hit the cap).
-    weights = pos_sigs / pos_sigs.sum()
-    for _ in range(20):
-        over    = weights > MAX_POSITION_SIZE
-        if not over.any():
-            break
-        weights[over] = MAX_POSITION_SIZE
-        leftover      = 1.0 - weights[over].sum()
-        uncapped      = ~over
-        if uncapped.any() and weights[uncapped].sum() > 0:
-            weights[uncapped] = (
-                weights[uncapped] / weights[uncapped].sum() * leftover
+    return _signal_to_weights(current_sigs), selection
+
+
+# ── Hypothetical paper portfolios (all 10 strategies simultaneously) ───────────
+def update_hypotheticals(signals_dict: dict, current_prices: dict, state: dict):
+    """
+    Track all 10 strategies as independent $10k paper portfolios.
+    Each strategy computes its own signal-proportional weights independently.
+    Period return = sum(prev_weight_i * price_return_i) applied to prev NAV.
+    """
+    hypo = state.setdefault("hypothetical", {})
+
+    for name, sig_df in signals_dict.items():
+        if sig_df is None or sig_df.empty:
+            continue
+        try:
+            latest_sig  = sig_df.iloc[-1].reindex(UNIVERSE, fill_value=0)
+            new_weights = _signal_to_weights(latest_sig)
+
+            if name not in hypo:
+                hypo[name] = {
+                    "nav":         PORTFOLIO_USDT,
+                    "weights":     new_weights.to_dict(),
+                    "last_prices": {s: current_prices.get(s, 0) for s in UNIVERSE},
+                    "nav_history": [{
+                        "date": str(pd.Timestamp.now(tz="UTC")),
+                        "nav":  PORTFOLIO_USDT,
+                    }],
+                }
+                logger.info(f"  📊 [HYPO INIT] {name} — starting at ${PORTFOLIO_USDT:,.0f}")
+                continue
+
+            # Period return = held weights × fractional price moves since last cycle
+            prev_weights = pd.Series(hypo[name].get("weights", {})).reindex(UNIVERSE, fill_value=0)
+            prev_prices  = hypo[name].get("last_prices", {})
+            prev_nav     = float(hypo[name]["nav"])
+
+            period_return = 0.0
+            for sym in UNIVERSE:
+                w  = float(prev_weights.get(sym, 0))
+                p0 = float(prev_prices.get(sym, 0))
+                p1 = float(current_prices.get(sym, 0))
+                if w > 0 and p0 > 0 and p1 > 0:
+                    period_return += w * (p1 - p0) / p0
+
+            new_nav = round(prev_nav * (1 + period_return), 2)
+            ret_pct = (new_nav - PORTFOLIO_USDT) / PORTFOLIO_USDT * 100
+
+            hypo[name]["nav"]         = new_nav
+            hypo[name]["weights"]     = new_weights.to_dict()
+            hypo[name]["last_prices"] = {s: current_prices.get(s, 0) for s in UNIVERSE}
+            hypo[name]["nav_history"].append({
+                "date": str(pd.Timestamp.now(tz="UTC")),
+                "nav":  new_nav,
+            })
+
+            logger.info(
+                f"  📊 [HYPO] {name:<28} NAV=${new_nav:,.2f}  ({ret_pct:+.2f}% vs start)"
             )
-        else:
-            break
-
-    weights = weights.clip(upper=MAX_POSITION_SIZE)
-    return weights.reindex(UNIVERSE, fill_value=0)
+        except Exception as e:
+            logger.error(f"Hypothetical update failed for {name}: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -470,18 +529,28 @@ def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: d
             pass
     logger.info("─" * 55)
 
-    # 3. New target weights
+    # 3. Fetch current prices (used for hypotheticals + potential rebalance)
+    prices = fetch_current_prices()
+
+    # 4. Update hypothetical paper portfolios for all 10 strategies
+    logger.info("─" * 55)
+    logger.info("Updating hypothetical paper portfolios...")
+    update_hypotheticals(signals_dict, prices, state)
+
+    # 5. New target weights for LIVE portfolio
     try:
-        new_weights = compute_target_weights(
+        new_weights, active_sel = compute_target_weights(
             seasonality_analyzer=seasonality_analyzer,
             signals_dict=signals_dict,
             close=close,
         )
+        state["active_strategies"] = [name for name, _ in active_sel]
     except Exception as e:
         logger.error(f"Weight computation failed: {e}")
+        save_state(state)  # persist hypotheticals even on error
         return
 
-    # 4. Compare to last known weights — only rebalance if signal changed
+    # 6. Compare to last known weights — only rebalance if signal changed
     prev_weights = pd.Series(state.get("current_weights", {})).reindex(UNIVERSE, fill_value=0)
     new_aligned  = new_weights.reindex(UNIVERSE, fill_value=0)
     weight_delta = (new_aligned - prev_weights).abs().sum()
@@ -506,18 +575,18 @@ def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: d
 
     if weight_delta < REBALANCE_THRESHOLD:
         logger.info("Signal unchanged — holding current positions, no orders placed.")
+        save_state(state)  # persist hypotheticals
         return
 
-    # 5. Signal shifted — rebalance
+    # 7. Signal shifted — rebalance
     logger.info(f"Signal shift detected (Δ={weight_delta:.4f}) — placing orders...")
 
-    prices = fetch_current_prices()
-    nav    = compute_nav(state, prices)
+    nav = compute_nav(state, prices)
     logger.info(f"Portfolio NAV: ${nav:,.2f} USDT")
 
     state = execute_rebalance(new_weights, state, nav, prices)
 
-    # 6. Persist
+    # 8. Persist
     state["current_weights"] = new_aligned.to_dict()
     state["last_run"]        = str(datetime.now(timezone.utc))
     state["nav_history"].append({

@@ -1,0 +1,22 @@
+# API keys — never commit these
+Binance.env
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# Data & results (large files, regenerated on run)
+data/cache/
+results/
+logs/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store

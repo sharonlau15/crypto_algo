@@ -19,7 +19,16 @@ for _d in [DATA_DIR, LOG_DIR, RESULT_DIR]:
     _d.mkdir(parents=True, exist_ok=True)
 
 # ── Environment ────────────────────────────────────────────────────────────────
-load_dotenv(Path.home() / "Desktop" / "SMU 3rd Sem" / "QF635 Market Microstructure" / "Binance.env")
+# Search order: project root .env → home-dir Mac path (local dev fallback)
+_env_candidates = [
+    ROOT_DIR / "Binance.env",
+    ROOT_DIR / ".env",
+    Path.home() / "Desktop" / "SMU 3rd Sem" / "QF635 Market Microstructure" / "Binance.env",
+]
+for _env_path in _env_candidates:
+    if _env_path.exists():
+        load_dotenv(_env_path)
+        break
 
 API_KEY            = os.getenv("BINANCE_API_KEY")
 API_SECRET         = os.getenv("BINANCE_API_SECRET")
