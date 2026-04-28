@@ -1,0 +1,90 @@
+{
+  "positions": {
+    "BTCUSDT": 0.02604,
+    "ETHUSDT": 0.8752,
+    "BNBUSDT": 3.205,
+    "SOLUSDT": 0.0,
+    "XRPUSDT": 0.0,
+    "ADAUSDT": 0.0,
+    "AVAXUSDT": 0.0,
+    "DOTUSDT": 0.0,
+    "LINKUSDT": 0.0,
+    "MATICUSDT": 0.0,
+    "ATOMUSDT": 0.0,
+    "LTCUSDT": 0.0
+  },
+  "cash_usdt": 4000.6065196,
+  "last_run": "2026-04-28 09:03:43.149604+00:00",
+  "nav_history": [
+    {
+      "date": "2026-04-28 08:49:00.156120+00:00",
+      "nav": 10000,
+      "event": "signal_rebalance"
+    },
+    {
+      "date": "2026-04-28 09:03:43.149635+00:00",
+      "nav": 10000.07,
+      "event": "signal_rebalance"
+    }
+  ],
+  "current_weights": {
+    "BTCUSDT": 0.2,
+    "ETHUSDT": 0.2,
+    "BNBUSDT": 0.2,
+    "SOLUSDT": 0.0,
+    "XRPUSDT": 0.2,
+    "ADAUSDT": 0.0,
+    "AVAXUSDT": 0.0,
+    "DOTUSDT": 0.14999495908329635,
+    "LINKUSDT": 0.04999831969443208,
+    "MATICUSDT": 0.0,
+    "ATOMUSDT": 0.0,
+    "LTCUSDT": 0.0
+  },
+  "position_entries": {
+    "BTCUSDT": {
+      "entry_price": 76792.26,
+      "entry_date": "2026-04-28 08:49:00.155691+00:00",
+      "peak_price": 76792.26
+    },
+    "ETHUSDT": {
+      "entry_price": 2285.15,
+      "entry_date": "2026-04-28 09:03:42.256951+00:00",
+      "peak_price": 2285.15
+    },
+    "BNBUSDT": {
+      "entry_price": 623.95,
+      "entry_date": "2026-04-28 09:03:42.475928+00:00",
+      "peak_price": 623.95
+    }
+  },
+  "trade_log": [
+    {
+      "time": "2026-04-28 08:49:00.155917+00:00",
+      "symbol": "BTCUSDT",
+      "side": "BUY",
+      "qty": 0.02604,
+      "price": 76792.26,
+      "reason": "signal_rebalance",
+      "order_id": 10449588
+    },
+    {
+      "time": "2026-04-28 09:03:42.257159+00:00",
+      "symbol": "ETHUSDT",
+      "side": "BUY",
+      "qty": 0.8752,
+      "price": 2285.15,
+      "reason": "signal_rebalance",
+      "order_id": 5506067
+    },
+    {
+      "time": "2026-04-28 09:03:42.476119+00:00",
+      "symbol": "BNBUSDT",
+      "side": "BUY",
+      "qty": 3.205,
+      "price": 623.95,
+      "reason": "signal_rebalance",
+      "order_id": 3429573
+    }
+  ]
+}

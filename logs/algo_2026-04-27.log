@@ -1,0 +1,1103 @@
+2026-04-27 16:29:14 | INFO     | __main__:181 | Checking Binance connectivity...
+2026-04-27 16:29:14 | INFO     | __main__:57 | ============================================================
+2026-04-27 16:29:14 | INFO     | __main__:58 | QF623 Crypto Algo — Backtest Pipeline
+2026-04-27 16:29:14 | INFO     | __main__:59 | ============================================================
+2026-04-27 16:29:14 | INFO     | __main__:62 | Step 1/6: Loading universe data
+2026-04-27 16:29:14 | INFO     | data.ingestion:85 | Fetching BTCUSDT 1d from 2021-01-01
+2026-04-27 16:29:15 | SUCCESS  | data.ingestion:105 | Cached BTCUSDT: 1943 bars → BTCUSDT_1d.parquet
+2026-04-27 16:29:15 | INFO     | data.ingestion:85 | Fetching ETHUSDT 1d from 2021-01-01
+2026-04-27 16:29:15 | SUCCESS  | data.ingestion:105 | Cached ETHUSDT: 1943 bars → ETHUSDT_1d.parquet
+2026-04-27 16:29:15 | INFO     | data.ingestion:85 | Fetching BNBUSDT 1d from 2021-01-01
+2026-04-27 16:29:16 | SUCCESS  | data.ingestion:105 | Cached BNBUSDT: 1943 bars → BNBUSDT_1d.parquet
+2026-04-27 16:29:16 | INFO     | data.ingestion:85 | Fetching SOLUSDT 1d from 2021-01-01
+2026-04-27 16:29:16 | SUCCESS  | data.ingestion:105 | Cached SOLUSDT: 1936 bars → SOLUSDT_1d.parquet
+2026-04-27 16:29:16 | INFO     | data.ingestion:85 | Fetching XRPUSDT 1d from 2021-01-01
+2026-04-27 16:29:17 | SUCCESS  | data.ingestion:105 | Cached XRPUSDT: 1943 bars → XRPUSDT_1d.parquet
+2026-04-27 16:29:17 | INFO     | data.ingestion:85 | Fetching ADAUSDT 1d from 2021-01-01
+2026-04-27 16:29:17 | SUCCESS  | data.ingestion:105 | Cached ADAUSDT: 1921 bars → ADAUSDT_1d.parquet
+2026-04-27 16:29:17 | INFO     | data.ingestion:85 | Fetching AVAXUSDT 1d from 2021-01-01
+2026-04-27 16:29:17 | SUCCESS  | data.ingestion:105 | Cached AVAXUSDT: 1853 bars → AVAXUSDT_1d.parquet
+2026-04-27 16:29:17 | INFO     | data.ingestion:85 | Fetching DOTUSDT 1d from 2021-01-01
+2026-04-27 16:29:18 | SUCCESS  | data.ingestion:105 | Cached DOTUSDT: 1733 bars → DOTUSDT_1d.parquet
+2026-04-27 16:29:18 | INFO     | data.ingestion:85 | Fetching LINKUSDT 1d from 2021-01-01
+2026-04-27 16:29:18 | SUCCESS  | data.ingestion:105 | Cached LINKUSDT: 1913 bars → LINKUSDT_1d.parquet
+2026-04-27 16:29:19 | INFO     | data.ingestion:85 | Fetching MATICUSDT 1d from 2021-01-01
+2026-04-27 16:29:19 | SUCCESS  | data.ingestion:105 | Cached MATICUSDT: 1331 bars → MATICUSDT_1d.parquet
+2026-04-27 16:29:19 | INFO     | data.ingestion:85 | Fetching ATOMUSDT 1d from 2021-01-01
+2026-04-27 16:29:20 | SUCCESS  | data.ingestion:105 | Cached ATOMUSDT: 1362 bars → ATOMUSDT_1d.parquet
+2026-04-27 16:29:20 | INFO     | data.ingestion:85 | Fetching LTCUSDT 1d from 2021-01-01
+2026-04-27 16:29:21 | SUCCESS  | data.ingestion:105 | Cached LTCUSDT: 1932 bars → LTCUSDT_1d.parquet
+2026-04-27 16:29:21 | INFO     | data.ingestion:132 | Universe loaded: 12/12 symbols
+2026-04-27 16:29:21 | INFO     | __main__:70 | Universe: ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'ATOMUSDT', 'LTCUSDT']
+2026-04-27 16:29:21 | INFO     | __main__:71 | Date range: 2021-01-01 → 2026-04-27
+2026-04-27 16:29:21 | INFO     | __main__:72 | Total bars: 1943
+2026-04-27 16:29:21 | INFO     | __main__:75 | Step 2/6: Loading funding rates and sentiment data
+2026-04-27 16:29:24 | INFO     | __main__:80 | Step 3/6: Generating signals for all 10 strategies
+2026-04-27 16:29:24 | INFO     | __main__:85 |   → momentum
+2026-04-27 16:29:24 | DEBUG    | strategies.base:68 | Running strategy: momentum
+2026-04-27 16:29:25 | INFO     | __main__:85 |   → mean_reversion
+2026-04-27 16:29:25 | DEBUG    | strategies.base:68 | Running strategy: mean_reversion
+2026-04-27 16:29:25 | INFO     | __main__:85 |   → risk_parity
+2026-04-27 16:29:25 | DEBUG    | strategies.base:68 | Running strategy: risk_parity
+2026-04-27 16:30:09 | INFO     | __main__:181 | Checking Binance connectivity...
+2026-04-27 16:30:09 | INFO     | __main__:57 | ============================================================
+2026-04-27 16:30:09 | INFO     | __main__:58 | QF623 Crypto Algo — Backtest Pipeline
+2026-04-27 16:30:09 | INFO     | __main__:59 | ============================================================
+2026-04-27 16:30:09 | INFO     | __main__:62 | Step 1/6: Loading universe data
+2026-04-27 16:30:09 | DEBUG    | data.ingestion:82 | Cache hit: BTCUSDT 1d
+2026-04-27 16:30:09 | DEBUG    | data.ingestion:82 | Cache hit: ETHUSDT 1d
+2026-04-27 16:30:09 | DEBUG    | data.ingestion:82 | Cache hit: BNBUSDT 1d
+2026-04-27 16:30:10 | DEBUG    | data.ingestion:82 | Cache hit: SOLUSDT 1d
+2026-04-27 16:30:10 | DEBUG    | data.ingestion:82 | Cache hit: XRPUSDT 1d
+2026-04-27 16:30:10 | DEBUG    | data.ingestion:82 | Cache hit: ADAUSDT 1d
+2026-04-27 16:30:10 | DEBUG    | data.ingestion:82 | Cache hit: AVAXUSDT 1d
+2026-04-27 16:30:10 | DEBUG    | data.ingestion:82 | Cache hit: DOTUSDT 1d
+2026-04-27 16:30:10 | DEBUG    | data.ingestion:82 | Cache hit: LINKUSDT 1d
+2026-04-27 16:30:10 | DEBUG    | data.ingestion:82 | Cache hit: MATICUSDT 1d
+2026-04-27 16:30:10 | DEBUG    | data.ingestion:82 | Cache hit: ATOMUSDT 1d
+2026-04-27 16:30:10 | DEBUG    | data.ingestion:82 | Cache hit: LTCUSDT 1d
+2026-04-27 16:30:11 | INFO     | data.ingestion:132 | Universe loaded: 12/12 symbols
+2026-04-27 16:30:11 | INFO     | __main__:70 | Universe: ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'ATOMUSDT', 'LTCUSDT']
+2026-04-27 16:30:11 | INFO     | __main__:71 | Date range: 2021-01-01 → 2026-04-27
+2026-04-27 16:30:11 | INFO     | __main__:72 | Total bars: 1943
+2026-04-27 16:30:11 | INFO     | __main__:75 | Step 2/6: Loading funding rates and sentiment data
+2026-04-27 16:30:14 | INFO     | __main__:80 | Step 3/6: Generating signals for all 10 strategies
+2026-04-27 16:30:14 | INFO     | __main__:85 |   → momentum
+2026-04-27 16:30:14 | DEBUG    | strategies.base:68 | Running strategy: momentum
+2026-04-27 16:30:15 | INFO     | __main__:85 |   → mean_reversion
+2026-04-27 16:30:15 | DEBUG    | strategies.base:68 | Running strategy: mean_reversion
+2026-04-27 16:30:15 | INFO     | __main__:85 |   → risk_parity
+2026-04-27 16:30:15 | DEBUG    | strategies.base:68 | Running strategy: risk_parity
+2026-04-27 16:32:46 | INFO     | __main__:181 | Checking Binance connectivity...
+2026-04-27 16:32:46 | INFO     | __main__:57 | ============================================================
+2026-04-27 16:32:46 | INFO     | __main__:58 | QF623 Crypto Algo — Backtest Pipeline
+2026-04-27 16:32:46 | INFO     | __main__:59 | ============================================================
+2026-04-27 16:32:46 | INFO     | __main__:62 | Step 1/6: Loading universe data
+2026-04-27 16:32:46 | DEBUG    | data.ingestion:82 | Cache hit: BTCUSDT 1d
+2026-04-27 16:32:46 | DEBUG    | data.ingestion:82 | Cache hit: ETHUSDT 1d
+2026-04-27 16:32:46 | DEBUG    | data.ingestion:82 | Cache hit: BNBUSDT 1d
+2026-04-27 16:32:47 | DEBUG    | data.ingestion:82 | Cache hit: SOLUSDT 1d
+2026-04-27 16:32:47 | DEBUG    | data.ingestion:82 | Cache hit: XRPUSDT 1d
+2026-04-27 16:32:47 | DEBUG    | data.ingestion:82 | Cache hit: ADAUSDT 1d
+2026-04-27 16:32:47 | DEBUG    | data.ingestion:82 | Cache hit: AVAXUSDT 1d
+2026-04-27 16:32:47 | DEBUG    | data.ingestion:82 | Cache hit: DOTUSDT 1d
+2026-04-27 16:32:47 | DEBUG    | data.ingestion:82 | Cache hit: LINKUSDT 1d
+2026-04-27 16:32:47 | DEBUG    | data.ingestion:82 | Cache hit: MATICUSDT 1d
+2026-04-27 16:32:47 | DEBUG    | data.ingestion:82 | Cache hit: ATOMUSDT 1d
+2026-04-27 16:32:47 | DEBUG    | data.ingestion:82 | Cache hit: LTCUSDT 1d
+2026-04-27 16:32:48 | INFO     | data.ingestion:132 | Universe loaded: 12/12 symbols
+2026-04-27 16:32:48 | INFO     | __main__:70 | Universe: ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'ATOMUSDT', 'LTCUSDT']
+2026-04-27 16:32:48 | INFO     | __main__:71 | Date range: 2021-01-01 → 2026-04-27
+2026-04-27 16:32:48 | INFO     | __main__:72 | Total bars: 1943
+2026-04-27 16:32:48 | INFO     | __main__:75 | Step 2/6: Loading funding rates and sentiment data
+2026-04-27 16:32:51 | INFO     | __main__:80 | Step 3/6: Generating signals for all 10 strategies
+2026-04-27 16:32:51 | INFO     | __main__:85 |   → momentum
+2026-04-27 16:32:51 | DEBUG    | strategies.base:68 | Running strategy: momentum
+2026-04-27 16:32:52 | INFO     | __main__:85 |   → mean_reversion
+2026-04-27 16:32:52 | DEBUG    | strategies.base:68 | Running strategy: mean_reversion
+2026-04-27 16:32:52 | INFO     | __main__:85 |   → risk_parity
+2026-04-27 16:32:52 | DEBUG    | strategies.base:68 | Running strategy: risk_parity
+2026-04-27 16:32:52 | INFO     | __main__:85 |   → cross_sectional_momentum
+2026-04-27 16:32:52 | DEBUG    | strategies.base:68 | Running strategy: cross_sectional_momentum
+2026-04-27 16:32:52 | INFO     | __main__:85 |   → vol_breakout
+2026-04-27 16:32:52 | DEBUG    | strategies.base:68 | Running strategy: vol_breakout
+2026-04-27 16:32:52 | INFO     | __main__:85 |   → pairs_trading
+2026-04-27 16:32:52 | DEBUG    | strategies.base:68 | Running strategy: pairs_trading
+2026-04-27 16:32:54 | INFO     | __main__:85 |   → ml_signal
+2026-04-27 16:32:54 | DEBUG    | strategies.base:68 | Running strategy: ml_signal
+2026-04-27 16:34:24 | INFO     | __main__:181 | Checking Binance connectivity...
+2026-04-27 16:34:24 | INFO     | __main__:57 | ============================================================
+2026-04-27 16:34:24 | INFO     | __main__:58 | QF623 Crypto Algo — Backtest Pipeline
+2026-04-27 16:34:24 | INFO     | __main__:59 | ============================================================
+2026-04-27 16:34:24 | INFO     | __main__:62 | Step 1/6: Loading universe data
+2026-04-27 16:34:24 | DEBUG    | data.ingestion:82 | Cache hit: BTCUSDT 1d
+2026-04-27 16:34:24 | DEBUG    | data.ingestion:82 | Cache hit: ETHUSDT 1d
+2026-04-27 16:34:24 | DEBUG    | data.ingestion:82 | Cache hit: BNBUSDT 1d
+2026-04-27 16:34:24 | DEBUG    | data.ingestion:82 | Cache hit: SOLUSDT 1d
+2026-04-27 16:34:24 | DEBUG    | data.ingestion:82 | Cache hit: XRPUSDT 1d
+2026-04-27 16:34:24 | DEBUG    | data.ingestion:82 | Cache hit: ADAUSDT 1d
+2026-04-27 16:34:24 | DEBUG    | data.ingestion:82 | Cache hit: AVAXUSDT 1d
+2026-04-27 16:34:25 | DEBUG    | data.ingestion:82 | Cache hit: DOTUSDT 1d
+2026-04-27 16:34:25 | DEBUG    | data.ingestion:82 | Cache hit: LINKUSDT 1d
+2026-04-27 16:34:25 | DEBUG    | data.ingestion:82 | Cache hit: MATICUSDT 1d
+2026-04-27 16:34:25 | DEBUG    | data.ingestion:82 | Cache hit: ATOMUSDT 1d
+2026-04-27 16:34:25 | DEBUG    | data.ingestion:82 | Cache hit: LTCUSDT 1d
+2026-04-27 16:34:25 | INFO     | data.ingestion:132 | Universe loaded: 12/12 symbols
+2026-04-27 16:34:25 | INFO     | __main__:70 | Universe: ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'ATOMUSDT', 'LTCUSDT']
+2026-04-27 16:34:25 | INFO     | __main__:71 | Date range: 2021-01-01 → 2026-04-27
+2026-04-27 16:34:25 | INFO     | __main__:72 | Total bars: 1943
+2026-04-27 16:34:25 | INFO     | __main__:75 | Step 2/6: Loading funding rates and sentiment data
+2026-04-27 16:34:29 | INFO     | __main__:80 | Step 3/6: Generating signals for all 10 strategies
+2026-04-27 16:34:29 | INFO     | __main__:85 |   → momentum
+2026-04-27 16:34:29 | DEBUG    | strategies.base:68 | Running strategy: momentum
+2026-04-27 16:34:29 | INFO     | __main__:85 |   → mean_reversion
+2026-04-27 16:34:29 | DEBUG    | strategies.base:68 | Running strategy: mean_reversion
+2026-04-27 16:34:29 | INFO     | __main__:85 |   → risk_parity
+2026-04-27 16:34:29 | DEBUG    | strategies.base:68 | Running strategy: risk_parity
+2026-04-27 16:34:29 | INFO     | __main__:85 |   → cross_sectional_momentum
+2026-04-27 16:34:29 | DEBUG    | strategies.base:68 | Running strategy: cross_sectional_momentum
+2026-04-27 16:34:29 | INFO     | __main__:85 |   → vol_breakout
+2026-04-27 16:34:29 | DEBUG    | strategies.base:68 | Running strategy: vol_breakout
+2026-04-27 16:34:29 | INFO     | __main__:85 |   → pairs_trading
+2026-04-27 16:34:29 | DEBUG    | strategies.base:68 | Running strategy: pairs_trading
+2026-04-27 16:34:31 | INFO     | __main__:85 |   → ml_signal
+2026-04-27 16:34:31 | DEBUG    | strategies.base:68 | Running strategy: ml_signal
+2026-04-27 16:49:59 | INFO     | __main__:181 | Checking Binance connectivity...
+2026-04-27 16:50:00 | INFO     | __main__:57 | ============================================================
+2026-04-27 16:50:00 | INFO     | __main__:58 | QF623 Crypto Algo — Backtest Pipeline
+2026-04-27 16:50:00 | INFO     | __main__:59 | ============================================================
+2026-04-27 16:50:00 | INFO     | __main__:62 | Step 1/6: Loading universe data
+2026-04-27 16:50:00 | DEBUG    | data.ingestion:82 | Cache hit: BTCUSDT 1d
+2026-04-27 16:50:00 | DEBUG    | data.ingestion:82 | Cache hit: ETHUSDT 1d
+2026-04-27 16:50:00 | DEBUG    | data.ingestion:82 | Cache hit: BNBUSDT 1d
+2026-04-27 16:50:00 | DEBUG    | data.ingestion:82 | Cache hit: SOLUSDT 1d
+2026-04-27 16:50:00 | DEBUG    | data.ingestion:82 | Cache hit: XRPUSDT 1d
+2026-04-27 16:50:00 | DEBUG    | data.ingestion:82 | Cache hit: ADAUSDT 1d
+2026-04-27 16:50:00 | DEBUG    | data.ingestion:82 | Cache hit: AVAXUSDT 1d
+2026-04-27 16:50:00 | DEBUG    | data.ingestion:82 | Cache hit: DOTUSDT 1d
+2026-04-27 16:50:01 | DEBUG    | data.ingestion:82 | Cache hit: LINKUSDT 1d
+2026-04-27 16:50:01 | DEBUG    | data.ingestion:82 | Cache hit: MATICUSDT 1d
+2026-04-27 16:50:01 | DEBUG    | data.ingestion:82 | Cache hit: ATOMUSDT 1d
+2026-04-27 16:50:01 | DEBUG    | data.ingestion:82 | Cache hit: LTCUSDT 1d
+2026-04-27 16:50:01 | INFO     | data.ingestion:132 | Universe loaded: 12/12 symbols
+2026-04-27 16:50:01 | INFO     | __main__:70 | Universe: ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'ATOMUSDT', 'LTCUSDT']
+2026-04-27 16:50:01 | INFO     | __main__:71 | Date range: 2021-01-01 → 2026-04-27
+2026-04-27 16:50:01 | INFO     | __main__:72 | Total bars: 1943
+2026-04-27 16:50:01 | INFO     | __main__:75 | Step 2/6: Loading funding rates and sentiment data
+2026-04-27 16:50:06 | INFO     | __main__:80 | Step 3/6: Generating signals for all 10 strategies
+2026-04-27 16:50:06 | INFO     | __main__:85 |   → momentum
+2026-04-27 16:50:06 | DEBUG    | strategies.base:68 | Running strategy: momentum
+2026-04-27 16:50:06 | INFO     | __main__:85 |   → mean_reversion
+2026-04-27 16:50:06 | DEBUG    | strategies.base:68 | Running strategy: mean_reversion
+2026-04-27 16:50:06 | INFO     | __main__:85 |   → risk_parity
+2026-04-27 16:50:06 | DEBUG    | strategies.base:68 | Running strategy: risk_parity
+2026-04-27 16:50:06 | INFO     | __main__:85 |   → cross_sectional_momentum
+2026-04-27 16:50:06 | DEBUG    | strategies.base:68 | Running strategy: cross_sectional_momentum
+2026-04-27 16:50:06 | INFO     | __main__:85 |   → vol_breakout
+2026-04-27 16:50:06 | DEBUG    | strategies.base:68 | Running strategy: vol_breakout
+2026-04-27 16:50:06 | INFO     | __main__:85 |   → pairs_trading
+2026-04-27 16:50:06 | DEBUG    | strategies.base:68 | Running strategy: pairs_trading
+2026-04-27 16:50:08 | INFO     | __main__:85 |   → ml_signal
+2026-04-27 16:50:08 | DEBUG    | strategies.base:68 | Running strategy: ml_signal
+2026-04-27 16:52:28 | INFO     | __main__:181 | Checking Binance connectivity...
+2026-04-27 16:52:28 | INFO     | __main__:57 | ============================================================
+2026-04-27 16:52:28 | INFO     | __main__:58 | QF623 Crypto Algo — Backtest Pipeline
+2026-04-27 16:52:28 | INFO     | __main__:59 | ============================================================
+2026-04-27 16:52:28 | INFO     | __main__:62 | Step 1/6: Loading universe data
+2026-04-27 16:52:28 | DEBUG    | data.ingestion:82 | Cache hit: BTCUSDT 1d
+2026-04-27 16:52:28 | DEBUG    | data.ingestion:82 | Cache hit: ETHUSDT 1d
+2026-04-27 16:52:28 | DEBUG    | data.ingestion:82 | Cache hit: BNBUSDT 1d
+2026-04-27 16:52:28 | DEBUG    | data.ingestion:82 | Cache hit: SOLUSDT 1d
+2026-04-27 16:52:28 | DEBUG    | data.ingestion:82 | Cache hit: XRPUSDT 1d
+2026-04-27 16:52:28 | DEBUG    | data.ingestion:82 | Cache hit: ADAUSDT 1d
+2026-04-27 16:52:28 | DEBUG    | data.ingestion:82 | Cache hit: AVAXUSDT 1d
+2026-04-27 16:52:29 | DEBUG    | data.ingestion:82 | Cache hit: DOTUSDT 1d
+2026-04-27 16:52:29 | DEBUG    | data.ingestion:82 | Cache hit: LINKUSDT 1d
+2026-04-27 16:52:29 | DEBUG    | data.ingestion:82 | Cache hit: MATICUSDT 1d
+2026-04-27 16:52:29 | DEBUG    | data.ingestion:82 | Cache hit: ATOMUSDT 1d
+2026-04-27 16:52:29 | DEBUG    | data.ingestion:82 | Cache hit: LTCUSDT 1d
+2026-04-27 16:52:29 | INFO     | data.ingestion:132 | Universe loaded: 12/12 symbols
+2026-04-27 16:52:29 | INFO     | __main__:70 | Universe: ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'ATOMUSDT', 'LTCUSDT']
+2026-04-27 16:52:29 | INFO     | __main__:71 | Date range: 2021-01-01 → 2026-04-27
+2026-04-27 16:52:29 | INFO     | __main__:72 | Total bars: 1943
+2026-04-27 16:52:29 | INFO     | __main__:75 | Step 2/6: Loading funding rates and sentiment data
+2026-04-27 16:52:33 | INFO     | __main__:80 | Step 3/6: Generating signals for all 10 strategies
+2026-04-27 16:52:33 | INFO     | __main__:85 |   → momentum
+2026-04-27 16:52:33 | DEBUG    | strategies.base:68 | Running strategy: momentum
+2026-04-27 16:52:33 | INFO     | __main__:85 |   → mean_reversion
+2026-04-27 16:52:33 | DEBUG    | strategies.base:68 | Running strategy: mean_reversion
+2026-04-27 16:52:33 | INFO     | __main__:85 |   → risk_parity
+2026-04-27 16:52:33 | DEBUG    | strategies.base:68 | Running strategy: risk_parity
+2026-04-27 16:52:33 | INFO     | __main__:85 |   → cross_sectional_momentum
+2026-04-27 16:52:33 | DEBUG    | strategies.base:68 | Running strategy: cross_sectional_momentum
+2026-04-27 16:52:33 | INFO     | __main__:85 |   → vol_breakout
+2026-04-27 16:52:33 | DEBUG    | strategies.base:68 | Running strategy: vol_breakout
+2026-04-27 16:52:33 | INFO     | __main__:85 |   → pairs_trading
+2026-04-27 16:52:33 | DEBUG    | strategies.base:68 | Running strategy: pairs_trading
+2026-04-27 16:52:36 | INFO     | __main__:85 |   → ml_signal
+2026-04-27 16:52:36 | DEBUG    | strategies.base:68 | Running strategy: ml_signal
+2026-04-27 18:49:19 | INFO     | __main__:181 | Checking Binance connectivity...
+2026-04-27 18:49:19 | INFO     | __main__:57 | ============================================================
+2026-04-27 18:49:19 | INFO     | __main__:58 | QF623 Crypto Algo — Backtest Pipeline
+2026-04-27 18:49:19 | INFO     | __main__:59 | ============================================================
+2026-04-27 18:49:19 | INFO     | __main__:62 | Step 1/6: Loading universe data
+2026-04-27 18:49:19 | DEBUG    | data.ingestion:82 | Cache hit: BTCUSDT 1d
+2026-04-27 18:49:19 | DEBUG    | data.ingestion:82 | Cache hit: ETHUSDT 1d
+2026-04-27 18:49:19 | DEBUG    | data.ingestion:82 | Cache hit: BNBUSDT 1d
+2026-04-27 18:49:19 | DEBUG    | data.ingestion:82 | Cache hit: SOLUSDT 1d
+2026-04-27 18:49:20 | DEBUG    | data.ingestion:82 | Cache hit: XRPUSDT 1d
+2026-04-27 18:49:20 | DEBUG    | data.ingestion:82 | Cache hit: ADAUSDT 1d
+2026-04-27 18:49:20 | DEBUG    | data.ingestion:82 | Cache hit: AVAXUSDT 1d
+2026-04-27 18:49:20 | DEBUG    | data.ingestion:82 | Cache hit: DOTUSDT 1d
+2026-04-27 18:49:20 | DEBUG    | data.ingestion:82 | Cache hit: LINKUSDT 1d
+2026-04-27 18:49:20 | DEBUG    | data.ingestion:82 | Cache hit: MATICUSDT 1d
+2026-04-27 18:49:20 | DEBUG    | data.ingestion:82 | Cache hit: ATOMUSDT 1d
+2026-04-27 18:49:20 | DEBUG    | data.ingestion:82 | Cache hit: LTCUSDT 1d
+2026-04-27 18:49:20 | INFO     | data.ingestion:132 | Universe loaded: 12/12 symbols
+2026-04-27 18:49:20 | INFO     | __main__:70 | Universe: ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'ATOMUSDT', 'LTCUSDT']
+2026-04-27 18:49:20 | INFO     | __main__:71 | Date range: 2021-01-01 → 2026-04-27
+2026-04-27 18:49:20 | INFO     | __main__:72 | Total bars: 1943
+2026-04-27 18:49:20 | INFO     | __main__:75 | Step 2/6: Loading funding rates and sentiment data
+2026-04-27 18:49:28 | INFO     | __main__:80 | Step 3/6: Generating signals for all 10 strategies
+2026-04-27 18:49:28 | INFO     | __main__:85 |   → momentum
+2026-04-27 18:49:28 | DEBUG    | strategies.base:68 | Running strategy: momentum
+2026-04-27 18:49:29 | INFO     | __main__:85 |   → mean_reversion
+2026-04-27 18:49:29 | DEBUG    | strategies.base:68 | Running strategy: mean_reversion
+2026-04-27 18:49:29 | INFO     | __main__:85 |   → risk_parity
+2026-04-27 18:49:29 | DEBUG    | strategies.base:68 | Running strategy: risk_parity
+2026-04-27 18:49:29 | INFO     | __main__:85 |   → cross_sectional_momentum
+2026-04-27 18:49:29 | DEBUG    | strategies.base:68 | Running strategy: cross_sectional_momentum
+2026-04-27 18:49:29 | INFO     | __main__:85 |   → vol_breakout
+2026-04-27 18:49:29 | DEBUG    | strategies.base:68 | Running strategy: vol_breakout
+2026-04-27 18:49:29 | INFO     | __main__:85 |   → pairs_trading
+2026-04-27 18:49:29 | DEBUG    | strategies.base:68 | Running strategy: pairs_trading
+2026-04-27 18:49:31 | INFO     | __main__:85 |   → ml_signal
+2026-04-27 18:49:31 | DEBUG    | strategies.base:68 | Running strategy: ml_signal
+2026-04-27 18:51:25 | INFO     | __main__:85 |   → macro_rotation
+2026-04-27 18:51:25 | DEBUG    | strategies.base:68 | Running strategy: macro_rotation
+2026-04-27 18:51:25 | INFO     | __main__:85 |   → carry
+2026-04-27 18:51:25 | DEBUG    | strategies.base:68 | Running strategy: carry
+2026-04-27 18:51:25 | INFO     | __main__:85 |   → sentiment
+2026-04-27 18:51:25 | DEBUG    | strategies.base:68 | Running strategy: sentiment
+2026-04-27 18:51:25 | INFO     | __main__:97 | Step 4/6: Running walk-forward backtests
+2026-04-27 18:51:25 | INFO     | backtest.engine:148 | Backtesting: momentum
+2026-04-27 18:51:31 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:32 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:32 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:32 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:32 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:32 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:32 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:32 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:32 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:32 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:32 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:32 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:32 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:32 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:32 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:32 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:34 | SUCCESS  | backtest.engine:239 | momentum: Sharpe=-0.819 | CAGR=-0.1219
+2026-04-27 18:51:34 | INFO     | backtest.engine:148 | Backtesting: mean_reversion
+2026-04-27 18:51:38 | SUCCESS  | backtest.engine:239 | mean_reversion: Sharpe=-1.424 | CAGR=-0.1984
+2026-04-27 18:51:38 | INFO     | backtest.engine:148 | Backtesting: risk_parity
+2026-04-27 18:51:42 | SUCCESS  | backtest.engine:239 | risk_parity: Sharpe=0.356 | CAGR=0.0427
+2026-04-27 18:51:42 | INFO     | backtest.engine:148 | Backtesting: cross_sectional_momentum
+2026-04-27 18:51:48 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:48 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:49 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:49 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:49 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:49 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:49 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:49 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:49 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:49 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:49 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:49 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:49 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:49 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:49 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:50 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:50 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:50 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:50 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:50 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:51 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:51 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:51 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:51 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:51 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:51 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:51 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:51:51 | SUCCESS  | backtest.engine:239 | cross_sectional_momentum: Sharpe=-0.542 | CAGR=-0.0871
+2026-04-27 18:51:51 | INFO     | backtest.engine:148 | Backtesting: vol_breakout
+2026-04-27 18:51:53 | SUCCESS  | backtest.engine:239 | vol_breakout: Sharpe=-0.574 | CAGR=-0.0372
+2026-04-27 18:51:53 | INFO     | backtest.engine:148 | Backtesting: pairs_trading
+2026-04-27 18:51:54 | SUCCESS  | backtest.engine:239 | pairs_trading: Sharpe=-0.478 | CAGR=-0.017
+2026-04-27 18:51:54 | INFO     | backtest.engine:148 | Backtesting: ml_signal
+2026-04-27 18:52:02 | SUCCESS  | backtest.engine:239 | ml_signal: Sharpe=-3.482 | CAGR=-0.4012
+2026-04-27 18:52:02 | INFO     | backtest.engine:148 | Backtesting: macro_rotation
+2026-04-27 18:52:06 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:52:07 | SUCCESS  | backtest.engine:239 | macro_rotation: Sharpe=0.67 | CAGR=0.0883
+2026-04-27 18:52:07 | INFO     | backtest.engine:148 | Backtesting: carry
+2026-04-27 18:52:08 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:52:08 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:52:08 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:52:08 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:52:08 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:52:08 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:52:08 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:52:08 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:52:08 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:52:08 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:52:09 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:52:09 | SUCCESS  | backtest.engine:239 | carry: Sharpe=-0.476 | CAGR=-0.018
+2026-04-27 18:52:09 | INFO     | backtest.engine:148 | Backtesting: sentiment
+2026-04-27 18:52:10 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 18:52:12 | SUCCESS  | backtest.engine:239 | sentiment: Sharpe=-0.697 | CAGR=-0.0221
+2026-04-27 18:52:12 | INFO     | __main__:107 | Step 5/6: Seasonality and regime analysis
+2026-04-27 18:52:12 | INFO     | seasonality.analyzer:175 | Strategy selector: date=2026-04-27 | month=4 | regime=bear
+2026-04-27 20:30:31 | INFO     | __main__:181 | Checking Binance connectivity...
+2026-04-27 20:30:31 | INFO     | __main__:57 | ============================================================
+2026-04-27 20:30:31 | INFO     | __main__:58 | QF623 Crypto Algo — Backtest Pipeline
+2026-04-27 20:30:31 | INFO     | __main__:59 | ============================================================
+2026-04-27 20:30:31 | INFO     | __main__:62 | Step 1/6: Loading universe data
+2026-04-27 20:30:31 | DEBUG    | data.ingestion:82 | Cache hit: BTCUSDT 1d
+2026-04-27 20:30:31 | DEBUG    | data.ingestion:82 | Cache hit: ETHUSDT 1d
+2026-04-27 20:30:31 | DEBUG    | data.ingestion:82 | Cache hit: BNBUSDT 1d
+2026-04-27 20:30:31 | DEBUG    | data.ingestion:82 | Cache hit: SOLUSDT 1d
+2026-04-27 20:30:31 | DEBUG    | data.ingestion:82 | Cache hit: XRPUSDT 1d
+2026-04-27 20:30:31 | DEBUG    | data.ingestion:82 | Cache hit: ADAUSDT 1d
+2026-04-27 20:30:32 | DEBUG    | data.ingestion:82 | Cache hit: AVAXUSDT 1d
+2026-04-27 20:30:32 | DEBUG    | data.ingestion:82 | Cache hit: DOTUSDT 1d
+2026-04-27 20:30:32 | DEBUG    | data.ingestion:82 | Cache hit: LINKUSDT 1d
+2026-04-27 20:30:32 | DEBUG    | data.ingestion:82 | Cache hit: MATICUSDT 1d
+2026-04-27 20:30:32 | DEBUG    | data.ingestion:82 | Cache hit: ATOMUSDT 1d
+2026-04-27 20:30:32 | DEBUG    | data.ingestion:82 | Cache hit: LTCUSDT 1d
+2026-04-27 20:30:32 | INFO     | data.ingestion:132 | Universe loaded: 12/12 symbols
+2026-04-27 20:30:32 | INFO     | __main__:70 | Universe: ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'ATOMUSDT', 'LTCUSDT']
+2026-04-27 20:30:32 | INFO     | __main__:71 | Date range: 2021-01-01 → 2026-04-27
+2026-04-27 20:30:32 | INFO     | __main__:72 | Total bars: 1943
+2026-04-27 20:30:32 | INFO     | __main__:75 | Step 2/6: Loading funding rates and sentiment data
+2026-04-27 20:30:37 | INFO     | __main__:80 | Step 3/6: Generating signals for all 10 strategies
+2026-04-27 20:30:37 | INFO     | __main__:85 |   → momentum
+2026-04-27 20:30:37 | DEBUG    | strategies.base:68 | Running strategy: momentum
+2026-04-27 20:30:37 | INFO     | __main__:85 |   → mean_reversion
+2026-04-27 20:30:37 | DEBUG    | strategies.base:68 | Running strategy: mean_reversion
+2026-04-27 20:30:37 | INFO     | __main__:85 |   → risk_parity
+2026-04-27 20:30:37 | DEBUG    | strategies.base:68 | Running strategy: risk_parity
+2026-04-27 20:30:37 | INFO     | __main__:85 |   → cross_sectional_momentum
+2026-04-27 20:30:37 | DEBUG    | strategies.base:68 | Running strategy: cross_sectional_momentum
+2026-04-27 20:30:37 | INFO     | __main__:85 |   → vol_breakout
+2026-04-27 20:30:37 | DEBUG    | strategies.base:68 | Running strategy: vol_breakout
+2026-04-27 20:30:37 | INFO     | __main__:85 |   → pairs_trading
+2026-04-27 20:30:37 | DEBUG    | strategies.base:68 | Running strategy: pairs_trading
+2026-04-27 20:30:39 | INFO     | __main__:85 |   → ml_signal
+2026-04-27 20:30:39 | DEBUG    | strategies.base:68 | Running strategy: ml_signal
+2026-04-27 20:32:19 | INFO     | __main__:181 | Checking Binance connectivity...
+2026-04-27 20:32:19 | INFO     | __main__:57 | ============================================================
+2026-04-27 20:32:19 | INFO     | __main__:58 | QF623 Crypto Algo — Backtest Pipeline
+2026-04-27 20:32:19 | INFO     | __main__:59 | ============================================================
+2026-04-27 20:32:19 | INFO     | __main__:62 | Step 1/6: Loading universe data
+2026-04-27 20:32:19 | DEBUG    | data.ingestion:82 | Cache hit: BTCUSDT 1d
+2026-04-27 20:32:19 | DEBUG    | data.ingestion:82 | Cache hit: ETHUSDT 1d
+2026-04-27 20:32:19 | DEBUG    | data.ingestion:82 | Cache hit: BNBUSDT 1d
+2026-04-27 20:32:19 | DEBUG    | data.ingestion:82 | Cache hit: SOLUSDT 1d
+2026-04-27 20:32:19 | DEBUG    | data.ingestion:82 | Cache hit: XRPUSDT 1d
+2026-04-27 20:32:19 | DEBUG    | data.ingestion:82 | Cache hit: ADAUSDT 1d
+2026-04-27 20:32:20 | DEBUG    | data.ingestion:82 | Cache hit: AVAXUSDT 1d
+2026-04-27 20:32:20 | DEBUG    | data.ingestion:82 | Cache hit: DOTUSDT 1d
+2026-04-27 20:32:20 | DEBUG    | data.ingestion:82 | Cache hit: LINKUSDT 1d
+2026-04-27 20:32:20 | DEBUG    | data.ingestion:82 | Cache hit: MATICUSDT 1d
+2026-04-27 20:32:20 | DEBUG    | data.ingestion:82 | Cache hit: ATOMUSDT 1d
+2026-04-27 20:32:20 | DEBUG    | data.ingestion:82 | Cache hit: LTCUSDT 1d
+2026-04-27 20:32:20 | INFO     | data.ingestion:132 | Universe loaded: 12/12 symbols
+2026-04-27 20:32:20 | INFO     | __main__:70 | Universe: ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'ATOMUSDT', 'LTCUSDT']
+2026-04-27 20:32:20 | INFO     | __main__:71 | Date range: 2021-01-01 → 2026-04-27
+2026-04-27 20:32:20 | INFO     | __main__:72 | Total bars: 1943
+2026-04-27 20:32:20 | INFO     | __main__:75 | Step 2/6: Loading funding rates and sentiment data
+2026-04-27 20:32:24 | INFO     | __main__:80 | Step 3/6: Generating signals for all 10 strategies
+2026-04-27 20:32:24 | INFO     | __main__:85 |   → momentum
+2026-04-27 20:32:24 | DEBUG    | strategies.base:68 | Running strategy: momentum
+2026-04-27 20:32:24 | INFO     | __main__:85 |   → mean_reversion
+2026-04-27 20:32:24 | DEBUG    | strategies.base:68 | Running strategy: mean_reversion
+2026-04-27 20:32:24 | INFO     | __main__:85 |   → risk_parity
+2026-04-27 20:32:24 | DEBUG    | strategies.base:68 | Running strategy: risk_parity
+2026-04-27 20:32:24 | INFO     | __main__:85 |   → cross_sectional_momentum
+2026-04-27 20:32:24 | DEBUG    | strategies.base:68 | Running strategy: cross_sectional_momentum
+2026-04-27 20:32:24 | INFO     | __main__:85 |   → vol_breakout
+2026-04-27 20:32:24 | DEBUG    | strategies.base:68 | Running strategy: vol_breakout
+2026-04-27 20:32:24 | INFO     | __main__:85 |   → pairs_trading
+2026-04-27 20:32:24 | DEBUG    | strategies.base:68 | Running strategy: pairs_trading
+2026-04-27 20:32:26 | INFO     | __main__:85 |   → ml_signal
+2026-04-27 20:32:26 | DEBUG    | strategies.base:68 | Running strategy: ml_signal
+2026-04-27 20:33:34 | INFO     | __main__:181 | Checking Binance connectivity...
+2026-04-27 20:33:34 | INFO     | __main__:57 | ============================================================
+2026-04-27 20:33:34 | INFO     | __main__:58 | QF623 Crypto Algo — Backtest Pipeline
+2026-04-27 20:33:34 | INFO     | __main__:59 | ============================================================
+2026-04-27 20:33:34 | INFO     | __main__:62 | Step 1/6: Loading universe data
+2026-04-27 20:33:34 | DEBUG    | data.ingestion:82 | Cache hit: BTCUSDT 1d
+2026-04-27 20:33:34 | DEBUG    | data.ingestion:82 | Cache hit: ETHUSDT 1d
+2026-04-27 20:33:35 | DEBUG    | data.ingestion:82 | Cache hit: BNBUSDT 1d
+2026-04-27 20:33:35 | DEBUG    | data.ingestion:82 | Cache hit: SOLUSDT 1d
+2026-04-27 20:33:35 | DEBUG    | data.ingestion:82 | Cache hit: XRPUSDT 1d
+2026-04-27 20:33:35 | DEBUG    | data.ingestion:82 | Cache hit: ADAUSDT 1d
+2026-04-27 20:33:35 | DEBUG    | data.ingestion:82 | Cache hit: AVAXUSDT 1d
+2026-04-27 20:33:35 | DEBUG    | data.ingestion:82 | Cache hit: DOTUSDT 1d
+2026-04-27 20:33:35 | DEBUG    | data.ingestion:82 | Cache hit: LINKUSDT 1d
+2026-04-27 20:33:35 | DEBUG    | data.ingestion:82 | Cache hit: MATICUSDT 1d
+2026-04-27 20:33:35 | DEBUG    | data.ingestion:82 | Cache hit: ATOMUSDT 1d
+2026-04-27 20:33:35 | DEBUG    | data.ingestion:82 | Cache hit: LTCUSDT 1d
+2026-04-27 20:33:36 | INFO     | data.ingestion:132 | Universe loaded: 12/12 symbols
+2026-04-27 20:33:36 | INFO     | __main__:70 | Universe: ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'ATOMUSDT', 'LTCUSDT']
+2026-04-27 20:33:36 | INFO     | __main__:71 | Date range: 2021-01-01 → 2026-04-27
+2026-04-27 20:33:36 | INFO     | __main__:72 | Total bars: 1943
+2026-04-27 20:33:36 | INFO     | __main__:75 | Step 2/6: Loading funding rates and sentiment data
+2026-04-27 20:33:39 | INFO     | __main__:80 | Step 3/6: Generating signals for all 10 strategies
+2026-04-27 20:33:39 | INFO     | __main__:85 |   → momentum
+2026-04-27 20:33:39 | DEBUG    | strategies.base:68 | Running strategy: momentum
+2026-04-27 20:33:40 | INFO     | __main__:85 |   → mean_reversion
+2026-04-27 20:33:40 | DEBUG    | strategies.base:68 | Running strategy: mean_reversion
+2026-04-27 20:33:40 | INFO     | __main__:85 |   → risk_parity
+2026-04-27 20:33:40 | DEBUG    | strategies.base:68 | Running strategy: risk_parity
+2026-04-27 20:33:40 | INFO     | __main__:85 |   → cross_sectional_momentum
+2026-04-27 20:33:40 | DEBUG    | strategies.base:68 | Running strategy: cross_sectional_momentum
+2026-04-27 20:33:40 | INFO     | __main__:85 |   → vol_breakout
+2026-04-27 20:33:40 | DEBUG    | strategies.base:68 | Running strategy: vol_breakout
+2026-04-27 20:33:40 | INFO     | __main__:85 |   → pairs_trading
+2026-04-27 20:33:40 | DEBUG    | strategies.base:68 | Running strategy: pairs_trading
+2026-04-27 20:33:42 | INFO     | __main__:85 |   → ml_signal
+2026-04-27 20:33:42 | DEBUG    | strategies.base:68 | Running strategy: ml_signal
+2026-04-27 20:33:47 | INFO     | __main__:85 |   → macro_rotation
+2026-04-27 20:33:47 | DEBUG    | strategies.base:68 | Running strategy: macro_rotation
+2026-04-27 20:33:47 | INFO     | __main__:85 |   → carry
+2026-04-27 20:33:47 | DEBUG    | strategies.base:68 | Running strategy: carry
+2026-04-27 20:33:47 | INFO     | __main__:85 |   → sentiment
+2026-04-27 20:33:47 | DEBUG    | strategies.base:68 | Running strategy: sentiment
+2026-04-27 20:33:47 | INFO     | __main__:97 | Step 4/6: Running walk-forward backtests
+2026-04-27 20:33:47 | INFO     | backtest.engine:148 | Backtesting: momentum
+2026-04-27 20:33:54 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:54 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:54 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:54 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:54 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:54 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:54 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:54 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:54 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:55 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:55 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:55 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:55 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:55 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:55 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:55 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:55 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:55 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:56 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:56 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:56 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:56 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:56 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:56 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:56 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:56 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:56 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:56 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:56 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:56 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:56 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:56 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:56 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:56 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:56 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:57 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:57 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:57 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:57 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:57 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:57 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:57 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:57 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:57 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:57 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:57 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:57 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:57 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:57 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:33:57 | SUCCESS  | backtest.engine:239 | momentum: Sharpe=-0.819 | CAGR=-0.1219
+2026-04-27 20:33:57 | INFO     | backtest.engine:148 | Backtesting: mean_reversion
+2026-04-27 20:34:01 | SUCCESS  | backtest.engine:239 | mean_reversion: Sharpe=-1.424 | CAGR=-0.1984
+2026-04-27 20:34:01 | INFO     | backtest.engine:148 | Backtesting: risk_parity
+2026-04-27 20:34:05 | SUCCESS  | backtest.engine:239 | risk_parity: Sharpe=0.356 | CAGR=0.0427
+2026-04-27 20:34:05 | INFO     | backtest.engine:148 | Backtesting: cross_sectional_momentum
+2026-04-27 20:34:12 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:12 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:12 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:12 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:12 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:12 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:12 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:12 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:12 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:13 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:13 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:13 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:13 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:13 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:13 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:13 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:14 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:14 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:14 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:14 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:14 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:14 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:15 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:15 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:15 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:15 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:15 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:15 | SUCCESS  | backtest.engine:239 | cross_sectional_momentum: Sharpe=-0.542 | CAGR=-0.0871
+2026-04-27 20:34:15 | INFO     | backtest.engine:148 | Backtesting: vol_breakout
+2026-04-27 20:34:17 | SUCCESS  | backtest.engine:239 | vol_breakout: Sharpe=-0.574 | CAGR=-0.0372
+2026-04-27 20:34:17 | INFO     | backtest.engine:148 | Backtesting: pairs_trading
+2026-04-27 20:34:18 | SUCCESS  | backtest.engine:239 | pairs_trading: Sharpe=-0.478 | CAGR=-0.017
+2026-04-27 20:34:18 | INFO     | backtest.engine:148 | Backtesting: ml_signal
+2026-04-27 20:34:26 | SUCCESS  | backtest.engine:239 | ml_signal: Sharpe=-1.813 | CAGR=-0.2647
+2026-04-27 20:34:26 | INFO     | backtest.engine:148 | Backtesting: macro_rotation
+2026-04-27 20:34:30 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:31 | SUCCESS  | backtest.engine:239 | macro_rotation: Sharpe=0.67 | CAGR=0.0883
+2026-04-27 20:34:31 | INFO     | backtest.engine:148 | Backtesting: carry
+2026-04-27 20:34:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:33 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:33 | SUCCESS  | backtest.engine:239 | carry: Sharpe=-0.476 | CAGR=-0.018
+2026-04-27 20:34:33 | INFO     | backtest.engine:148 | Backtesting: sentiment
+2026-04-27 20:34:35 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:34:36 | SUCCESS  | backtest.engine:239 | sentiment: Sharpe=-0.697 | CAGR=-0.0221
+2026-04-27 20:34:36 | INFO     | __main__:107 | Step 5/6: Seasonality and regime analysis
+2026-04-27 20:34:36 | INFO     | seasonality.analyzer:175 | Strategy selector: date=2026-04-27 | month=4 | regime=bear
+2026-04-27 20:34:36 | INFO     | seasonality.analyzer:218 | Selected strategies: [('cross_sectional_momentum', 1.0), ('risk_parity', 0.0)]
+2026-04-27 20:34:36 | INFO     | __main__:119 | Current strategy selection: [('cross_sectional_momentum', 1.0), ('risk_parity', 0.0)]
+2026-04-27 20:34:36 | INFO     | __main__:122 | Step 6/6: Performance attribution
+2026-04-27 20:34:36 | SUCCESS  | utils.reporting:103 | Results saved to /Users/sharonlau15/Desktop/SMU 3rd Sem/3in1Project/crypto_algo/results
+2026-04-27 20:34:36 | INFO     | __main__:227 | ✅ Session complete.
+2026-04-27 20:36:04 | INFO     | __main__:181 | Checking Binance connectivity...
+2026-04-27 20:36:05 | INFO     | __main__:57 | ============================================================
+2026-04-27 20:36:05 | INFO     | __main__:58 | QF623 Crypto Algo — Backtest Pipeline
+2026-04-27 20:36:05 | INFO     | __main__:59 | ============================================================
+2026-04-27 20:36:05 | INFO     | __main__:62 | Step 1/6: Loading universe data
+2026-04-27 20:36:05 | DEBUG    | data.ingestion:82 | Cache hit: BTCUSDT 1d
+2026-04-27 20:36:05 | DEBUG    | data.ingestion:82 | Cache hit: ETHUSDT 1d
+2026-04-27 20:36:05 | DEBUG    | data.ingestion:82 | Cache hit: BNBUSDT 1d
+2026-04-27 20:36:05 | DEBUG    | data.ingestion:82 | Cache hit: SOLUSDT 1d
+2026-04-27 20:36:05 | DEBUG    | data.ingestion:82 | Cache hit: XRPUSDT 1d
+2026-04-27 20:36:05 | DEBUG    | data.ingestion:82 | Cache hit: ADAUSDT 1d
+2026-04-27 20:36:05 | DEBUG    | data.ingestion:82 | Cache hit: AVAXUSDT 1d
+2026-04-27 20:36:05 | DEBUG    | data.ingestion:82 | Cache hit: DOTUSDT 1d
+2026-04-27 20:36:06 | DEBUG    | data.ingestion:82 | Cache hit: LINKUSDT 1d
+2026-04-27 20:36:06 | DEBUG    | data.ingestion:82 | Cache hit: MATICUSDT 1d
+2026-04-27 20:36:06 | DEBUG    | data.ingestion:82 | Cache hit: ATOMUSDT 1d
+2026-04-27 20:36:06 | DEBUG    | data.ingestion:82 | Cache hit: LTCUSDT 1d
+2026-04-27 20:36:06 | INFO     | data.ingestion:132 | Universe loaded: 12/12 symbols
+2026-04-27 20:36:06 | INFO     | __main__:70 | Universe: ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'ATOMUSDT', 'LTCUSDT']
+2026-04-27 20:36:06 | INFO     | __main__:71 | Date range: 2021-01-01 → 2026-04-27
+2026-04-27 20:36:06 | INFO     | __main__:72 | Total bars: 1943
+2026-04-27 20:36:06 | INFO     | __main__:75 | Step 2/6: Loading funding rates and sentiment data
+2026-04-27 20:36:10 | INFO     | __main__:80 | Step 3/6: Generating signals for all 10 strategies
+2026-04-27 20:36:10 | INFO     | __main__:85 |   → momentum
+2026-04-27 20:36:10 | DEBUG    | strategies.base:68 | Running strategy: momentum
+2026-04-27 20:36:10 | INFO     | __main__:85 |   → mean_reversion
+2026-04-27 20:36:10 | DEBUG    | strategies.base:68 | Running strategy: mean_reversion
+2026-04-27 20:36:10 | INFO     | __main__:85 |   → risk_parity
+2026-04-27 20:36:10 | DEBUG    | strategies.base:68 | Running strategy: risk_parity
+2026-04-27 20:36:10 | INFO     | __main__:85 |   → cross_sectional_momentum
+2026-04-27 20:36:10 | DEBUG    | strategies.base:68 | Running strategy: cross_sectional_momentum
+2026-04-27 20:36:10 | INFO     | __main__:85 |   → vol_breakout
+2026-04-27 20:36:10 | DEBUG    | strategies.base:68 | Running strategy: vol_breakout
+2026-04-27 20:36:10 | INFO     | __main__:85 |   → pairs_trading
+2026-04-27 20:36:10 | DEBUG    | strategies.base:68 | Running strategy: pairs_trading
+2026-04-27 20:36:12 | INFO     | __main__:85 |   → ml_signal
+2026-04-27 20:36:12 | DEBUG    | strategies.base:68 | Running strategy: ml_signal
+2026-04-27 20:36:18 | INFO     | __main__:85 |   → macro_rotation
+2026-04-27 20:36:18 | DEBUG    | strategies.base:68 | Running strategy: macro_rotation
+2026-04-27 20:36:18 | INFO     | __main__:85 |   → carry
+2026-04-27 20:36:18 | DEBUG    | strategies.base:68 | Running strategy: carry
+2026-04-27 20:36:18 | INFO     | __main__:85 |   → sentiment
+2026-04-27 20:36:18 | DEBUG    | strategies.base:68 | Running strategy: sentiment
+2026-04-27 20:36:18 | INFO     | __main__:97 | Step 4/6: Running walk-forward backtests
+2026-04-27 20:36:18 | INFO     | backtest.engine:148 | Backtesting: momentum
+2026-04-27 20:36:24 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:27 | SUCCESS  | backtest.engine:239 | momentum: Sharpe=-0.819 | CAGR=-0.1219
+2026-04-27 20:36:27 | INFO     | backtest.engine:148 | Backtesting: mean_reversion
+2026-04-27 20:36:31 | SUCCESS  | backtest.engine:239 | mean_reversion: Sharpe=-1.424 | CAGR=-0.1984
+2026-04-27 20:36:31 | INFO     | backtest.engine:148 | Backtesting: risk_parity
+2026-04-27 20:36:35 | SUCCESS  | backtest.engine:239 | risk_parity: Sharpe=0.356 | CAGR=0.0427
+2026-04-27 20:36:35 | INFO     | backtest.engine:148 | Backtesting: cross_sectional_momentum
+2026-04-27 20:36:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:43 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:43 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:43 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:43 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:43 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:43 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:43 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:44 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:44 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:44 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:44 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:44 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:44 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:44 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:45 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:45 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:45 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:36:45 | SUCCESS  | backtest.engine:239 | cross_sectional_momentum: Sharpe=-0.542 | CAGR=-0.0871
+2026-04-27 20:36:45 | INFO     | backtest.engine:148 | Backtesting: vol_breakout
+2026-04-27 20:36:46 | SUCCESS  | backtest.engine:239 | vol_breakout: Sharpe=-0.574 | CAGR=-0.0372
+2026-04-27 20:36:46 | INFO     | backtest.engine:148 | Backtesting: pairs_trading
+2026-04-27 20:36:48 | SUCCESS  | backtest.engine:239 | pairs_trading: Sharpe=-0.478 | CAGR=-0.017
+2026-04-27 20:36:48 | INFO     | backtest.engine:148 | Backtesting: ml_signal
+2026-04-27 20:36:56 | SUCCESS  | backtest.engine:239 | ml_signal: Sharpe=-1.813 | CAGR=-0.2647
+2026-04-27 20:36:56 | INFO     | backtest.engine:148 | Backtesting: macro_rotation
+2026-04-27 20:36:59 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:37:00 | SUCCESS  | backtest.engine:239 | macro_rotation: Sharpe=0.67 | CAGR=0.0883
+2026-04-27 20:37:00 | INFO     | backtest.engine:148 | Backtesting: carry
+2026-04-27 20:37:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:37:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:37:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:37:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:37:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:37:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:37:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:37:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:37:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:37:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:37:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:37:02 | SUCCESS  | backtest.engine:239 | carry: Sharpe=-0.476 | CAGR=-0.018
+2026-04-27 20:37:02 | INFO     | backtest.engine:148 | Backtesting: sentiment
+2026-04-27 20:37:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:37:05 | SUCCESS  | backtest.engine:239 | sentiment: Sharpe=-0.697 | CAGR=-0.0221
+2026-04-27 20:37:05 | INFO     | __main__:107 | Step 5/6: Seasonality and regime analysis
+2026-04-27 20:37:05 | INFO     | seasonality.analyzer:175 | Strategy selector: date=2026-04-27 | month=4 | regime=bear
+2026-04-27 20:37:05 | INFO     | seasonality.analyzer:218 | Selected strategies: [('cross_sectional_momentum', 1.0), ('risk_parity', 0.0)]
+2026-04-27 20:37:05 | INFO     | __main__:119 | Current strategy selection: [('cross_sectional_momentum', 1.0), ('risk_parity', 0.0)]
+2026-04-27 20:37:05 | INFO     | __main__:122 | Step 6/6: Performance attribution
+2026-04-27 20:37:05 | SUCCESS  | utils.reporting:103 | Results saved to /Users/sharonlau15/Desktop/SMU 3rd Sem/3in1Project/crypto_algo/results
+2026-04-27 20:37:05 | INFO     | __main__:227 | ✅ Session complete.
+2026-04-27 20:38:42 | INFO     | __main__:181 | Checking Binance connectivity...
+2026-04-27 20:38:42 | WARNING  | __main__:190 | Starting live mode — ensure PAPER_TRADING=True in settings.py
+2026-04-27 20:38:42 | INFO     | __main__:57 | ============================================================
+2026-04-27 20:38:42 | INFO     | __main__:58 | QF623 Crypto Algo — Backtest Pipeline
+2026-04-27 20:38:42 | INFO     | __main__:59 | ============================================================
+2026-04-27 20:38:42 | INFO     | __main__:62 | Step 1/6: Loading universe data
+2026-04-27 20:38:42 | DEBUG    | data.ingestion:82 | Cache hit: BTCUSDT 1d
+2026-04-27 20:38:43 | DEBUG    | data.ingestion:82 | Cache hit: ETHUSDT 1d
+2026-04-27 20:38:43 | DEBUG    | data.ingestion:82 | Cache hit: BNBUSDT 1d
+2026-04-27 20:38:43 | DEBUG    | data.ingestion:82 | Cache hit: SOLUSDT 1d
+2026-04-27 20:38:43 | DEBUG    | data.ingestion:82 | Cache hit: XRPUSDT 1d
+2026-04-27 20:38:43 | DEBUG    | data.ingestion:82 | Cache hit: ADAUSDT 1d
+2026-04-27 20:38:43 | DEBUG    | data.ingestion:82 | Cache hit: AVAXUSDT 1d
+2026-04-27 20:38:43 | DEBUG    | data.ingestion:82 | Cache hit: DOTUSDT 1d
+2026-04-27 20:38:43 | DEBUG    | data.ingestion:82 | Cache hit: LINKUSDT 1d
+2026-04-27 20:38:43 | DEBUG    | data.ingestion:82 | Cache hit: MATICUSDT 1d
+2026-04-27 20:38:44 | DEBUG    | data.ingestion:82 | Cache hit: ATOMUSDT 1d
+2026-04-27 20:38:44 | DEBUG    | data.ingestion:82 | Cache hit: LTCUSDT 1d
+2026-04-27 20:38:44 | INFO     | data.ingestion:132 | Universe loaded: 12/12 symbols
+2026-04-27 20:38:44 | INFO     | __main__:70 | Universe: ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'ATOMUSDT', 'LTCUSDT']
+2026-04-27 20:38:44 | INFO     | __main__:71 | Date range: 2021-01-01 → 2026-04-27
+2026-04-27 20:38:44 | INFO     | __main__:72 | Total bars: 1943
+2026-04-27 20:38:44 | INFO     | __main__:75 | Step 2/6: Loading funding rates and sentiment data
+2026-04-27 20:38:48 | INFO     | __main__:80 | Step 3/6: Generating signals for all 10 strategies
+2026-04-27 20:38:48 | INFO     | __main__:85 |   → momentum
+2026-04-27 20:38:48 | DEBUG    | strategies.base:68 | Running strategy: momentum
+2026-04-27 20:38:48 | INFO     | __main__:85 |   → mean_reversion
+2026-04-27 20:38:48 | DEBUG    | strategies.base:68 | Running strategy: mean_reversion
+2026-04-27 20:38:48 | INFO     | __main__:85 |   → risk_parity
+2026-04-27 20:38:48 | DEBUG    | strategies.base:68 | Running strategy: risk_parity
+2026-04-27 20:38:48 | INFO     | __main__:85 |   → cross_sectional_momentum
+2026-04-27 20:38:48 | DEBUG    | strategies.base:68 | Running strategy: cross_sectional_momentum
+2026-04-27 20:38:48 | INFO     | __main__:85 |   → vol_breakout
+2026-04-27 20:38:48 | DEBUG    | strategies.base:68 | Running strategy: vol_breakout
+2026-04-27 20:38:48 | INFO     | __main__:85 |   → pairs_trading
+2026-04-27 20:38:48 | DEBUG    | strategies.base:68 | Running strategy: pairs_trading
+2026-04-27 20:38:50 | INFO     | __main__:85 |   → ml_signal
+2026-04-27 20:38:50 | DEBUG    | strategies.base:68 | Running strategy: ml_signal
+2026-04-27 20:38:56 | INFO     | __main__:85 |   → macro_rotation
+2026-04-27 20:38:56 | DEBUG    | strategies.base:68 | Running strategy: macro_rotation
+2026-04-27 20:38:56 | INFO     | __main__:85 |   → carry
+2026-04-27 20:38:56 | DEBUG    | strategies.base:68 | Running strategy: carry
+2026-04-27 20:38:56 | INFO     | __main__:85 |   → sentiment
+2026-04-27 20:38:56 | DEBUG    | strategies.base:68 | Running strategy: sentiment
+2026-04-27 20:38:56 | INFO     | __main__:97 | Step 4/6: Running walk-forward backtests
+2026-04-27 20:38:56 | INFO     | backtest.engine:148 | Backtesting: momentum
+2026-04-27 20:39:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:03 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:03 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:03 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:03 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:03 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:03 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:03 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:03 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:03 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:03 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:03 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:03 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:04 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:05 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:05 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:05 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:05 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:05 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:05 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:05 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:05 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:05 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:05 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:05 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:05 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:05 | SUCCESS  | backtest.engine:239 | momentum: Sharpe=-0.819 | CAGR=-0.1219
+2026-04-27 20:39:05 | INFO     | backtest.engine:148 | Backtesting: mean_reversion
+2026-04-27 20:39:08 | SUCCESS  | backtest.engine:239 | mean_reversion: Sharpe=-1.424 | CAGR=-0.1984
+2026-04-27 20:39:08 | INFO     | backtest.engine:148 | Backtesting: risk_parity
+2026-04-27 20:39:13 | SUCCESS  | backtest.engine:239 | risk_parity: Sharpe=0.356 | CAGR=0.0427
+2026-04-27 20:39:13 | INFO     | backtest.engine:148 | Backtesting: cross_sectional_momentum
+2026-04-27 20:39:19 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:19 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:19 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:19 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:19 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:19 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:19 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:20 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:20 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:20 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:20 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:20 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:20 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:20 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:20 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:20 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:21 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:21 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:21 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:21 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:21 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:21 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:22 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:22 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:22 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:22 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:22 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:22 | SUCCESS  | backtest.engine:239 | cross_sectional_momentum: Sharpe=-0.542 | CAGR=-0.0871
+2026-04-27 20:39:22 | INFO     | backtest.engine:148 | Backtesting: vol_breakout
+2026-04-27 20:39:24 | SUCCESS  | backtest.engine:239 | vol_breakout: Sharpe=-0.574 | CAGR=-0.0372
+2026-04-27 20:39:24 | INFO     | backtest.engine:148 | Backtesting: pairs_trading
+2026-04-27 20:39:25 | SUCCESS  | backtest.engine:239 | pairs_trading: Sharpe=-0.478 | CAGR=-0.017
+2026-04-27 20:39:25 | INFO     | backtest.engine:148 | Backtesting: ml_signal
+2026-04-27 20:39:33 | SUCCESS  | backtest.engine:239 | ml_signal: Sharpe=-1.813 | CAGR=-0.2647
+2026-04-27 20:39:33 | INFO     | backtest.engine:148 | Backtesting: macro_rotation
+2026-04-27 20:39:37 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:38 | SUCCESS  | backtest.engine:239 | macro_rotation: Sharpe=0.67 | CAGR=0.0883
+2026-04-27 20:39:38 | INFO     | backtest.engine:148 | Backtesting: carry
+2026-04-27 20:39:39 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:39 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:39 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:39 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:39 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:39 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:39 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:39 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:40 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:40 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:40 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:40 | SUCCESS  | backtest.engine:239 | carry: Sharpe=-0.476 | CAGR=-0.018
+2026-04-27 20:39:40 | INFO     | backtest.engine:148 | Backtesting: sentiment
+2026-04-27 20:39:41 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 20:39:43 | SUCCESS  | backtest.engine:239 | sentiment: Sharpe=-0.697 | CAGR=-0.0221
+2026-04-27 20:39:43 | INFO     | __main__:107 | Step 5/6: Seasonality and regime analysis
+2026-04-27 20:39:43 | INFO     | seasonality.analyzer:175 | Strategy selector: date=2026-04-27 | month=4 | regime=bear
+2026-04-27 20:39:43 | INFO     | seasonality.analyzer:218 | Selected strategies: [('cross_sectional_momentum', 1.0), ('risk_parity', 0.0)]
+2026-04-27 20:39:43 | INFO     | __main__:119 | Current strategy selection: [('cross_sectional_momentum', 1.0), ('risk_parity', 0.0)]
+2026-04-27 20:39:43 | INFO     | __main__:122 | Step 6/6: Performance attribution
+2026-04-27 20:39:43 | SUCCESS  | utils.reporting:103 | Results saved to /Users/sharonlau15/Desktop/SMU 3rd Sem/3in1Project/crypto_algo/results
+2026-04-27 20:39:43 | INFO     | execution.live_engine:360 | Scheduler started — running daily at 06:00 UTC
+2026-04-27 20:39:43 | INFO     | execution.live_engine:361 | Keep this process alive (tmux / screen / Docker recommended)
+2026-04-27 20:39:43 | INFO     | execution.live_engine:362 | Press Ctrl+C to gracefully shutdown and generate reports...
+2026-04-27 21:51:22 | INFO     | execution.live_engine:367 | 
+🛑 Graceful shutdown initiated...
+2026-04-27 21:51:22 | WARNING  | execution.live_engine:334 | No live state file found to report on.
+2026-04-27 21:51:22 | SUCCESS  | execution.live_engine:369 | ✅ Strategy engine stopped. Goodbye!
+2026-04-27 21:51:22 | INFO     | __main__:227 | ✅ Session complete.
+2026-04-27 22:02:04 | INFO     | __main__:181 | Checking Binance connectivity...
+2026-04-27 22:02:04 | WARNING  | __main__:190 | Starting live mode — ensure PAPER_TRADING=True in settings.py
+2026-04-27 22:02:04 | INFO     | __main__:57 | ============================================================
+2026-04-27 22:02:04 | INFO     | __main__:58 | QF623 Crypto Algo — Backtest Pipeline
+2026-04-27 22:02:04 | INFO     | __main__:59 | ============================================================
+2026-04-27 22:02:04 | INFO     | __main__:62 | Step 1/6: Loading universe data
+2026-04-27 22:02:04 | DEBUG    | data.ingestion:82 | Cache hit: BTCUSDT 1d
+2026-04-27 22:02:04 | DEBUG    | data.ingestion:82 | Cache hit: ETHUSDT 1d
+2026-04-27 22:02:04 | DEBUG    | data.ingestion:82 | Cache hit: BNBUSDT 1d
+2026-04-27 22:02:04 | DEBUG    | data.ingestion:82 | Cache hit: SOLUSDT 1d
+2026-04-27 22:02:05 | DEBUG    | data.ingestion:82 | Cache hit: XRPUSDT 1d
+2026-04-27 22:02:05 | DEBUG    | data.ingestion:82 | Cache hit: ADAUSDT 1d
+2026-04-27 22:02:05 | DEBUG    | data.ingestion:82 | Cache hit: AVAXUSDT 1d
+2026-04-27 22:02:05 | DEBUG    | data.ingestion:82 | Cache hit: DOTUSDT 1d
+2026-04-27 22:02:05 | DEBUG    | data.ingestion:82 | Cache hit: LINKUSDT 1d
+2026-04-27 22:02:05 | DEBUG    | data.ingestion:82 | Cache hit: MATICUSDT 1d
+2026-04-27 22:02:05 | DEBUG    | data.ingestion:82 | Cache hit: ATOMUSDT 1d
+2026-04-27 22:02:05 | DEBUG    | data.ingestion:82 | Cache hit: LTCUSDT 1d
+2026-04-27 22:02:05 | INFO     | data.ingestion:132 | Universe loaded: 12/12 symbols
+2026-04-27 22:02:05 | INFO     | __main__:70 | Universe: ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'ATOMUSDT', 'LTCUSDT']
+2026-04-27 22:02:05 | INFO     | __main__:71 | Date range: 2021-01-01 → 2026-04-27
+2026-04-27 22:02:05 | INFO     | __main__:72 | Total bars: 1943
+2026-04-27 22:02:05 | INFO     | __main__:75 | Step 2/6: Loading funding rates and sentiment data
+2026-04-27 22:02:10 | INFO     | __main__:80 | Step 3/6: Generating signals for all 10 strategies
+2026-04-27 22:02:10 | INFO     | __main__:85 |   → momentum
+2026-04-27 22:02:10 | DEBUG    | strategies.base:68 | Running strategy: momentum
+2026-04-27 22:02:11 | INFO     | __main__:85 |   → mean_reversion
+2026-04-27 22:02:11 | DEBUG    | strategies.base:68 | Running strategy: mean_reversion
+2026-04-27 22:02:11 | INFO     | __main__:85 |   → risk_parity
+2026-04-27 22:02:11 | DEBUG    | strategies.base:68 | Running strategy: risk_parity
+2026-04-27 22:02:11 | INFO     | __main__:85 |   → cross_sectional_momentum
+2026-04-27 22:02:11 | DEBUG    | strategies.base:68 | Running strategy: cross_sectional_momentum
+2026-04-27 22:02:11 | INFO     | __main__:85 |   → vol_breakout
+2026-04-27 22:02:11 | DEBUG    | strategies.base:68 | Running strategy: vol_breakout
+2026-04-27 22:02:11 | INFO     | __main__:85 |   → pairs_trading
+2026-04-27 22:02:11 | DEBUG    | strategies.base:68 | Running strategy: pairs_trading
+2026-04-27 22:02:13 | INFO     | __main__:85 |   → ml_signal
+2026-04-27 22:02:13 | DEBUG    | strategies.base:68 | Running strategy: ml_signal
+2026-04-27 22:02:18 | INFO     | __main__:85 |   → macro_rotation
+2026-04-27 22:02:18 | DEBUG    | strategies.base:68 | Running strategy: macro_rotation
+2026-04-27 22:02:18 | INFO     | __main__:85 |   → carry
+2026-04-27 22:02:18 | DEBUG    | strategies.base:68 | Running strategy: carry
+2026-04-27 22:02:18 | INFO     | __main__:85 |   → sentiment
+2026-04-27 22:02:18 | DEBUG    | strategies.base:68 | Running strategy: sentiment
+2026-04-27 22:02:18 | INFO     | __main__:97 | Step 4/6: Running walk-forward backtests
+2026-04-27 22:02:18 | INFO     | backtest.engine:164 | Backtesting: momentum
+2026-04-27 22:02:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:25 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:26 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:27 | SUCCESS  | backtest.engine:255 | momentum: Sharpe=-0.819 | CAGR=-0.1219
+2026-04-27 22:02:27 | INFO     | backtest.engine:164 | Backtesting: mean_reversion
+2026-04-27 22:02:31 | SUCCESS  | backtest.engine:255 | mean_reversion: Sharpe=-1.424 | CAGR=-0.1984
+2026-04-27 22:02:31 | INFO     | backtest.engine:164 | Backtesting: risk_parity
+2026-04-27 22:02:35 | SUCCESS  | backtest.engine:255 | risk_parity: Sharpe=0.356 | CAGR=0.0427
+2026-04-27 22:02:35 | INFO     | backtest.engine:164 | Backtesting: cross_sectional_momentum
+2026-04-27 22:02:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:42 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:43 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:43 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:43 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:43 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:44 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:44 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:44 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:44 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:44 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:44 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:44 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:44 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:44 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:02:44 | SUCCESS  | backtest.engine:255 | cross_sectional_momentum: Sharpe=-0.542 | CAGR=-0.0871
+2026-04-27 22:02:44 | INFO     | backtest.engine:164 | Backtesting: vol_breakout
+2026-04-27 22:02:46 | SUCCESS  | backtest.engine:255 | vol_breakout: Sharpe=-0.574 | CAGR=-0.0372
+2026-04-27 22:02:46 | INFO     | backtest.engine:164 | Backtesting: pairs_trading
+2026-04-27 22:02:47 | SUCCESS  | backtest.engine:255 | pairs_trading: Sharpe=-0.478 | CAGR=-0.017
+2026-04-27 22:02:47 | INFO     | backtest.engine:164 | Backtesting: ml_signal
+2026-04-27 22:02:55 | SUCCESS  | backtest.engine:255 | ml_signal: Sharpe=-1.813 | CAGR=-0.2647
+2026-04-27 22:02:55 | INFO     | backtest.engine:164 | Backtesting: macro_rotation
+2026-04-27 22:02:59 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:03:00 | SUCCESS  | backtest.engine:255 | macro_rotation: Sharpe=0.67 | CAGR=0.0883
+2026-04-27 22:03:00 | INFO     | backtest.engine:164 | Backtesting: carry
+2026-04-27 22:03:01 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:03:01 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:03:01 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:03:01 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:03:01 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:03:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:03:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:03:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:03:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:03:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:03:02 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:03:02 | SUCCESS  | backtest.engine:255 | carry: Sharpe=-0.476 | CAGR=-0.018
+2026-04-27 22:03:02 | INFO     | backtest.engine:164 | Backtesting: sentiment
+2026-04-27 22:03:03 | DEBUG    | portfolio.optimizer:116 | Optimizer: Positive directional derivative for linesearch — falling back to equal-weight
+2026-04-27 22:03:05 | SUCCESS  | backtest.engine:255 | sentiment: Sharpe=-0.697 | CAGR=-0.0221
+2026-04-27 22:03:05 | INFO     | __main__:107 | Step 5/6: Seasonality and regime analysis
+2026-04-27 22:03:05 | INFO     | seasonality.analyzer:175 | Strategy selector: date=2026-04-27 | month=4 | regime=bear
+2026-04-27 22:03:05 | INFO     | seasonality.analyzer:218 | Selected strategies: [('cross_sectional_momentum', 1.0), ('risk_parity', 0.0)]
+2026-04-27 22:03:05 | INFO     | __main__:119 | Current strategy selection: [('cross_sectional_momentum', 1.0), ('risk_parity', 0.0)]
+2026-04-27 22:03:05 | INFO     | __main__:122 | Step 6/6: Performance attribution
+2026-04-27 22:03:05 | SUCCESS  | utils.reporting:103 | Results saved to /Users/sharonlau15/Desktop/SMU 3rd Sem/3in1Project/crypto_algo/results
+2026-04-27 22:03:05 | INFO     | execution.live_engine:360 | Scheduler started — running daily at 06:00 UTC
+2026-04-27 22:03:05 | INFO     | execution.live_engine:361 | Keep this process alive (tmux / screen / Docker recommended)
+2026-04-27 22:03:05 | INFO     | execution.live_engine:362 | Press Ctrl+C to gracefully shutdown and generate reports...
+2026-04-27 22:06:03 | INFO     | execution.live_engine:367 | 
+🛑 Graceful shutdown initiated...
+2026-04-27 22:06:03 | WARNING  | execution.live_engine:334 | No live state file found to report on.
+2026-04-27 22:06:03 | SUCCESS  | execution.live_engine:369 | ✅ Strategy engine stopped. Goodbye!
+2026-04-27 22:06:03 | INFO     | __main__:227 | ✅ Session complete.

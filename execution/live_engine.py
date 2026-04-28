@@ -1,0 +1,643 @@
+"""
+execution/live_engine.py
+========================
+Real-time continuous trading engine.
+
+Two concurrent loops
+--------------------
+ FAST  (every PRICE_MONITOR_SECS, default 60s)
+   → Fetch current prices for all positions
+   → Check stop loss / trailing stop / take profit
+   → Execute immediate exit orders if triggered
+
+ SIGNAL (every SIGNAL_RECOMPUTE_MINS, default 60min)
+   → Fetch fresh OHLCV data (no cache)
+   → Recompute all strategy signals on latest data
+   → Compute new target portfolio weights
+   → Compare to last-known weights (stored in state)
+   → Execute rebalance ONLY if total weight delta > REBALANCE_THRESHOLD
+   → Log reason and skip if signal unchanged
+
+This means the engine trades whenever the signal shifts — not on a fixed clock.
+"""
+
+import sys
+import os
+from pathlib import Path
+
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+import time
+import json
+from datetime import datetime, timezone
+import pandas as pd
+import numpy as np
+from loguru import logger
+from apscheduler.schedulers.background import BackgroundScheduler
+
+from config.client import get_client
+from config.settings import (
+    UNIVERSE, PORTFOLIO_USDT, MIN_ORDER_USDT,
+    PAPER_TRADING, LOG_DIR, RESULT_DIR,
+    STOP_LOSS_PCT, TAKE_PROFIT_PCT,
+    TRAILING_STOP_PCT, USE_TRAILING_STOP,
+    SIGNAL_RECOMPUTE_MINS, PRICE_MONITOR_SECS, REBALANCE_THRESHOLD,
+    MAX_LIVE_POSITIONS, MAX_POSITION_SIZE,
+)
+from data.ingestion import get_universe_ohlcv, build_close_matrix, build_return_matrix
+from data.ingestion import get_fear_greed_index, get_universe_funding_rates
+from seasonality.analyzer import blend_signals
+from utils.logger import setup_logger
+
+
+STATE_FILE      = RESULT_DIR / "live_state.json"
+_last_heartbeat = 0.0   # tracks when the monitor last printed a full portfolio snapshot
+
+
+# ── State management ───────────────────────────────────────────────────────────
+def load_state() -> dict:
+    if STATE_FILE.exists():
+        with open(STATE_FILE) as f:
+            return json.load(f)
+    return {
+        "positions":        {sym: 0.0 for sym in UNIVERSE},
+        "cash_usdt":        PORTFOLIO_USDT,
+        "last_run":         None,
+        "nav_history":      [],
+        "current_weights":  {},
+        "position_entries": {},
+        "trade_log":        [],
+        "hypothetical":     {},
+        "active_strategies": [],
+    }
+
+
+def save_state(state: dict):
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2, default=str)
+
+
+# ── Portfolio NAV ──────────────────────────────────────────────────────────────
+def compute_nav(state: dict, current_prices: dict = None) -> float:
+    if current_prices is None:
+        client = get_client(for_trading=False)
+        current_prices = {}
+        for sym in UNIVERSE:
+            try:
+                current_prices[sym] = float(client.get_symbol_ticker(symbol=sym)["price"])
+            except Exception:
+                pass
+
+    nav = state["cash_usdt"]
+    for sym, qty in state["positions"].items():
+        if qty != 0 and sym in current_prices:
+            nav += qty * current_prices[sym]
+    return nav
+
+
+# ── Fetch current prices (all universe) ───────────────────────────────────────
+def fetch_current_prices() -> dict:
+    client = get_client(for_trading=False)
+    prices = {}
+    for sym in UNIVERSE:
+        try:
+            prices[sym] = float(client.get_symbol_ticker(symbol=sym)["price"])
+        except Exception as e:
+            logger.warning(f"Price fetch failed {sym}: {e}")
+    return prices
+
+
+# ── Stop loss / Take profit / Trailing stop check ─────────────────────────────
+def check_position_exits(state: dict, current_prices: dict) -> dict:
+    """Return {symbol: exit_price} for positions that breached a risk limit."""
+    exits = {}
+    if "position_entries" not in state:
+        state["position_entries"] = {}
+
+    for sym, qty in state["positions"].items():
+        if qty == 0 or sym not in state["position_entries"]:
+            continue
+
+        entry        = state["position_entries"][sym]
+        entry_price  = entry["entry_price"]
+        current      = current_prices.get(sym)
+        if current is None:
+            continue
+
+        pct = (current - entry_price) / entry_price
+
+        if pct <= -STOP_LOSS_PCT:
+            exits[sym] = current
+            logger.warning(
+                f"[STOP LOSS] {sym} {pct*100:.2f}% "
+                f"(entry={entry_price:.2f} now={current:.2f})"
+            )
+            continue
+
+        if pct >= TAKE_PROFIT_PCT:
+            exits[sym] = current
+            logger.success(
+                f"[TAKE PROFIT] {sym} +{pct*100:.2f}% "
+                f"(entry={entry_price:.2f} now={current:.2f})"
+            )
+            continue
+
+        if USE_TRAILING_STOP and TRAILING_STOP_PCT > 0:
+            peak = entry.get("peak_price", entry_price)
+            if current > peak:
+                entry["peak_price"] = current
+                peak = current
+            dd = (peak - current) / peak
+            if dd >= TRAILING_STOP_PCT:
+                exits[sym] = current
+                logger.warning(
+                    f"[TRAILING STOP] {sym} -{dd*100:.2f}% from peak "
+                    f"(peak={peak:.2f} now={current:.2f})"
+                )
+
+    return exits
+
+
+# ── Execute exit orders only (no rebalance) ───────────────────────────────────
+def execute_exits_only(forced_exits: dict, state: dict) -> dict:
+    """Close specific positions immediately. Used by the price monitor."""
+    client = get_client(for_trading=True)
+
+    for sym, exit_price in forced_exits.items():
+        qty = state["positions"].get(sym, 0)
+        if qty == 0:
+            continue
+        try:
+            if PAPER_TRADING:
+                order = client.create_order(
+                    symbol=sym,
+                    side="SELL" if qty > 0 else "BUY",
+                    type="MARKET",
+                    quantity=abs(qty),
+                )
+                proceeds = qty * exit_price
+                state["positions"][sym] = 0.0
+                state["cash_usdt"] += proceeds
+                state["position_entries"].pop(sym, None)
+
+                entry_price = state.get("position_entries", {}).get(sym, {}).get("entry_price", exit_price)
+                pos_pnl     = (exit_price - entry_price) * qty
+                pos_pct     = (exit_price - entry_price) / entry_price * 100 if entry_price else 0
+
+                state.setdefault("trade_log", []).append({
+                    "time":      str(datetime.now(timezone.utc)),
+                    "symbol":    sym,
+                    "side":      "SELL",
+                    "qty":       abs(qty),
+                    "price":     exit_price,
+                    "pnl":       round(pos_pnl, 4),
+                    "reason":    "stop/tp",
+                    "order_id":  order.get("orderId"),
+                })
+                logger.warning(
+                    f"📝 [EXIT ORDER] SELL {abs(qty):.6f} {sym} @ ${exit_price:,.2f} "
+                    f"| P&L: {pos_pnl:+.2f} ({pos_pct:+.2f}%) "
+                    f"| orderId={order.get('orderId')}"
+                )
+        except Exception as e:
+            logger.error(f"Exit order failed {sym}: {e}")
+
+    return state
+
+
+# ── Full rebalance (signal-driven) ────────────────────────────────────────────
+def execute_rebalance(target_weights: pd.Series, state: dict, nav: float,
+                      current_prices: dict) -> dict:
+    """Place orders to shift current weights towards target weights."""
+    client = get_client(for_trading=True)
+
+    current_values = {
+        sym: state["positions"].get(sym, 0) * current_prices.get(sym, 0)
+        for sym in UNIVERSE
+    }
+    current_w = {sym: v / nav for sym, v in current_values.items()}
+
+    for sym in UNIVERSE:
+        target_w  = float(target_weights.get(sym, 0.0))
+        current_w_ = current_w.get(sym, 0.0)
+        delta_w    = target_w - current_w_
+        delta_usdt = delta_w * nav
+
+        if abs(delta_usdt) < MIN_ORDER_USDT:
+            continue
+
+        price = current_prices.get(sym)
+        if not price:
+            continue
+
+        try:
+            info = client.get_symbol_info(sym)
+            step = next(
+                float(f["stepSize"])
+                for f in info["filters"]
+                if f["filterType"] == "LOT_SIZE"
+            )
+            qty  = abs(delta_usdt) / price
+            qty  = round(qty // step * step, 8)
+            if qty <= 0:
+                continue
+
+            side = "BUY" if delta_usdt > 0 else "SELL"
+
+            if PAPER_TRADING:
+                order = client.create_order(
+                    symbol=sym, side=side, type="MARKET", quantity=qty,
+                )
+                cost = qty * price
+                logger.success(
+                    f"📝 [TESTNET ORDER] {side} {qty:.6f} {sym} @ ${price:,.2f} "
+                    f"| Δw={delta_w*100:+.1f}% | {'Cost' if side=='BUY' else 'Proceeds'}=${cost:,.2f} "
+                    f"| orderId={order.get('orderId')}"
+                )
+
+                state.setdefault("position_entries", {})
+                if side == "BUY":
+                    is_new = state["positions"].get(sym, 0) == 0
+                    if is_new:
+                        state["position_entries"][sym] = {
+                            "entry_price": price,
+                            "entry_date":  str(pd.Timestamp.now(tz="UTC")),
+                            "peak_price":  price,
+                        }
+                        sl_price = price * (1 - STOP_LOSS_PCT)
+                        tp_price = price * (1 + TAKE_PROFIT_PCT)
+                        logger.info(
+                            f"   ↳ Entry=${price:,.2f} | "
+                            f"Stop Loss=${sl_price:,.2f} (-{STOP_LOSS_PCT*100:.0f}%) | "
+                            f"Take Profit=${tp_price:,.2f} (+{TAKE_PROFIT_PCT*100:.0f}%)"
+                        )
+                    state["positions"][sym] = state["positions"].get(sym, 0) + qty
+                    state["cash_usdt"]     -= qty * price
+                else:
+                    entry_price = state.get("position_entries", {}).get(sym, {}).get("entry_price", price)
+                    sell_pnl    = (price - entry_price) * qty
+                    sell_pct    = (price - entry_price) / entry_price * 100 if entry_price else 0
+                    logger.info(f"   ↳ Realised P&L: {sell_pnl:+.2f} ({sell_pct:+.2f}%)")
+                    new_qty = state["positions"].get(sym, 0) - qty
+                    if new_qty <= 0:
+                        state["position_entries"].pop(sym, None)
+                    state["positions"][sym] = max(new_qty, 0)
+                    state["cash_usdt"]     += qty * price
+
+                state.setdefault("trade_log", []).append({
+                    "time":      str(datetime.now(timezone.utc)),
+                    "symbol":    sym,
+                    "side":      side,
+                    "qty":       qty,
+                    "price":     price,
+                    "reason":    "signal_rebalance",
+                    "order_id":  order.get("orderId"),
+                })
+
+        except Exception as e:
+            logger.error(f"Order failed {sym}: {e}")
+
+    return state
+
+
+# ── Signal weight computation ──────────────────────────────────────────────────
+def compute_target_weights(
+    seasonality_analyzer,
+    signals_dict: dict,
+    close: pd.DataFrame,
+) -> pd.Series:
+    selection = seasonality_analyzer.select_strategy(
+        current_date=close.index[-1], top_n=2,
+    )
+    logger.info(f"Active strategy blend: {selection}")
+
+    blended      = blend_signals(signals_dict, selection, close)
+    current_sigs = blended.iloc[-1].reindex(UNIVERSE, fill_value=0)
+
+    # Take the top MAX_LIVE_POSITIONS tokens with positive signals
+    pos_sigs = current_sigs[current_sigs > 0].nlargest(MAX_LIVE_POSITIONS)
+
+    if pos_sigs.empty:
+        logger.warning("No positive signals from active strategies — holding cash")
+        return pd.Series(0.0, index=UNIVERSE)
+
+    # Signal-proportional allocation with iterative capping at MAX_POSITION_SIZE.
+    # Iterative because capping one token frees up weight that must be redistributed
+    # to the remaining tokens (which may then also hit the cap).
+    weights = pos_sigs / pos_sigs.sum()
+    for _ in range(20):
+        over    = weights > MAX_POSITION_SIZE
+        if not over.any():
+            break
+        weights[over] = MAX_POSITION_SIZE
+        leftover      = 1.0 - weights[over].sum()
+        uncapped      = ~over
+        if uncapped.any() and weights[uncapped].sum() > 0:
+            weights[uncapped] = (
+                weights[uncapped] / weights[uncapped].sum() * leftover
+            )
+        else:
+            break
+
+    weights = weights.clip(upper=MAX_POSITION_SIZE)
+    return weights.reindex(UNIVERSE, fill_value=0)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# JOB 1 — PRICE MONITOR  (runs every PRICE_MONITOR_SECS seconds)
+# ══════════════════════════════════════════════════════════════════════════════
+def price_monitor_job():
+    """
+    Fast loop: poll current prices and immediately exit any position
+    that breaches its stop loss, take profit, or trailing stop.
+    Does NOT rebalance — just closes the breached position.
+    """
+    state = load_state()
+
+    open_positions = {sym: qty for sym, qty in state["positions"].items() if qty != 0}
+    if not open_positions:
+        return  # nothing to monitor
+
+    prices = fetch_current_prices()
+    forced_exits = check_position_exits(state, prices)
+
+    if forced_exits:
+        logger.warning(
+            f"[MONITOR] Risk limits hit for: {list(forced_exits.keys())} — closing now"
+        )
+        state = execute_exits_only(forced_exits, state)
+        nav   = compute_nav(state, prices)
+        state["nav_history"].append({
+            "date": str(pd.Timestamp.now(tz="UTC")),
+            "nav":  round(nav, 2),
+            "event": "stop_tp_exit",
+        })
+        save_state(state)
+
+    # Portfolio heartbeat every 30 seconds
+    global _last_heartbeat
+    if time.time() - _last_heartbeat >= 30:
+        _last_heartbeat = time.time()
+        nav        = compute_nav(state, prices)
+        nav_hist   = state.get("nav_history", [])
+        start_nav  = nav_hist[0]["nav"] if nav_hist else PORTFOLIO_USDT
+        pnl        = nav - start_nav
+        pnl_pct    = pnl / start_nav * 100 if start_nav else 0
+        ts         = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+        n_open     = len(open_positions)
+        logger.info(
+            f"📈 [{ts}] NAV=${nav:,.2f} | Cash=${state['cash_usdt']:,.2f} "
+            f"| Positions={n_open} | P&L={pnl:+.2f} ({pnl_pct:+.2f}%)"
+        )
+        entries = state.get("position_entries", {})
+        for sym, qty in open_positions.items():
+            ep = entries.get(sym, {}).get("entry_price", 0)
+            cp = prices.get(sym, 0)
+            if ep and cp:
+                pos_pnl = (cp - ep) * qty
+                pos_pct = (cp - ep) / ep * 100
+                sl      = ep * (1 - STOP_LOSS_PCT)
+                tp      = ep * (1 + TAKE_PROFIT_PCT)
+                logger.info(
+                    f"   {sym:<12} {qty:.6f} | entry=${ep:,.2f} | now=${cp:,.2f} "
+                    f"| P&L={pos_pnl:+.2f} ({pos_pct:+.2f}%) "
+                    f"| SL=${sl:,.2f} | TP=${tp:,.2f}"
+                )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# JOB 2 — SIGNAL RECOMPUTE + CONDITIONAL REBALANCE
+#          (runs every SIGNAL_RECOMPUTE_MINS minutes)
+# ══════════════════════════════════════════════════════════════════════════════
+def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: dict):
+    """
+    Signal loop: recompute all strategy signals on the latest market data.
+    Only places orders when the new target weights differ from the current
+    weights by more than REBALANCE_THRESHOLD (sum of |Δweight|).
+
+    This is what makes the engine signal-driven rather than clock-driven.
+    """
+    logger.info("=" * 55)
+    logger.info(f"Signal recompute — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+
+    state = load_state()
+
+    # 1. Fresh data (bypass cache so we always have the latest bar)
+    logger.info("Fetching latest market data...")
+    try:
+        universe_data = get_universe_ohlcv(use_cache=False)
+        close         = build_close_matrix(universe_data)
+        returns       = build_return_matrix(close)
+        funding       = get_universe_funding_rates()
+        fg            = get_fear_greed_index()
+    except Exception as e:
+        logger.error(f"Data fetch failed — skipping this cycle: {e}")
+        return
+
+    # 2. Recompute all strategy signals
+    logger.info(f"Recomputing signals for {len(strategies)} strategies...")
+    high_df = pd.DataFrame({s: universe_data[s]["high"] for s in universe_data})
+    low_df  = pd.DataFrame({s: universe_data[s]["low"]  for s in universe_data})
+    for strategy in strategies:
+        try:
+            signals = strategy.run(
+                close=close, returns=returns,
+                high=high_df, low=low_df,
+                funding_rates=funding, fear_greed=fg,
+            )
+            signals_dict[strategy.name] = signals
+        except Exception as e:
+            logger.error(f"Signal failed for {strategy.name}: {e}")
+
+    # Print per-strategy signal snapshot (latest bar)
+    logger.info("─" * 55)
+    logger.info("STRATEGY SIGNALS — latest bar")
+    for name, sig_df in signals_dict.items():
+        try:
+            if sig_df is None or sig_df.empty:
+                continue
+            latest    = sig_df.iloc[-1].reindex(UNIVERSE, fill_value=0)
+            bulls     = latest[latest > 0.01].nlargest(4)
+            bears     = latest[latest < -0.01].nsmallest(3)
+            bull_str  = "  ".join(f"{s.replace('USDT','')}={v:+.2f}" for s, v in bulls.items())
+            bear_str  = "  ".join(f"{s.replace('USDT','')}={v:+.2f}" for s, v in bears.items())
+            signal_line = bull_str or "(no long signals)"
+            if bear_str:
+                signal_line += f"  |  Short: {bear_str}"
+            logger.info(f"  🎯 {name:<24} {signal_line}")
+        except Exception:
+            pass
+    logger.info("─" * 55)
+
+    # 3. New target weights
+    try:
+        new_weights = compute_target_weights(
+            seasonality_analyzer=seasonality_analyzer,
+            signals_dict=signals_dict,
+            close=close,
+        )
+    except Exception as e:
+        logger.error(f"Weight computation failed: {e}")
+        return
+
+    # 4. Compare to last known weights — only rebalance if signal changed
+    prev_weights = pd.Series(state.get("current_weights", {})).reindex(UNIVERSE, fill_value=0)
+    new_aligned  = new_weights.reindex(UNIVERSE, fill_value=0)
+    weight_delta = (new_aligned - prev_weights).abs().sum()
+
+    # Print weight delta table
+    logger.info(f"{'Symbol':<12} {'Current':>8} {'Target':>8} {'Delta':>8}  {'Action'}")
+    logger.info("─" * 52)
+    for sym in UNIVERSE:
+        pw = float(prev_weights.get(sym, 0))
+        nw = float(new_aligned.get(sym, 0))
+        dw = nw - pw
+        if abs(dw) < 0.001 and pw == 0 and nw == 0:
+            continue
+        action = "▲ BUY" if dw > 0.01 else ("▼ SELL" if dw < -0.01 else "· hold")
+        logger.info(f"{sym:<12} {pw*100:>7.1f}% {nw*100:>7.1f}% {dw*100:>+7.1f}%  {action}")
+    logger.info("─" * 52)
+    logger.info(
+        f"Total weight delta: {weight_delta:.4f} "
+        f"(threshold={REBALANCE_THRESHOLD}) "
+        f"→ {'⚡ REBALANCE' if weight_delta >= REBALANCE_THRESHOLD else '✋ HOLD'}"
+    )
+
+    if weight_delta < REBALANCE_THRESHOLD:
+        logger.info("Signal unchanged — holding current positions, no orders placed.")
+        return
+
+    # 5. Signal shifted — rebalance
+    logger.info(f"Signal shift detected (Δ={weight_delta:.4f}) — placing orders...")
+
+    prices = fetch_current_prices()
+    nav    = compute_nav(state, prices)
+    logger.info(f"Portfolio NAV: ${nav:,.2f} USDT")
+
+    state = execute_rebalance(new_weights, state, nav, prices)
+
+    # 6. Persist
+    state["current_weights"] = new_aligned.to_dict()
+    state["last_run"]        = str(datetime.now(timezone.utc))
+    state["nav_history"].append({
+        "date":  str(pd.Timestamp.now(tz="UTC")),
+        "nav":   round(nav, 2),
+        "event": "signal_rebalance",
+    })
+    save_state(state)
+    logger.success(f"Rebalance complete. NAV=${nav:,.2f}")
+
+
+# ── Graceful shutdown reporting ────────────────────────────────────────────────
+def _generate_final_reports():
+    try:
+        if not STATE_FILE.exists():
+            logger.warning("No live state file to report on.")
+            return
+
+        with open(STATE_FILE) as f:
+            state = json.load(f)
+
+        logger.info("\n" + "=" * 55)
+        logger.info("FINAL REPORT — Live Trading Session")
+        logger.info("=" * 55)
+        logger.info(f"Cash remaining: ${state['cash_usdt']:,.2f} USDT")
+
+        open_pos = {sym: qty for sym, qty in state["positions"].items() if qty != 0}
+        logger.info(f"Open positions ({len(open_pos)}):")
+        for sym, qty in open_pos.items():
+            logger.info(f"  {sym}: {qty:.6f}")
+
+        trade_log = state.get("trade_log", [])
+        logger.info(f"Total trades executed: {len(trade_log)}")
+
+        nav_history = state.get("nav_history", [])
+        if nav_history:
+            nav_df    = pd.DataFrame(nav_history)
+            nav_df["nav"] = pd.to_numeric(nav_df["nav"])
+            start_nav = nav_df["nav"].iloc[0]
+            end_nav   = nav_df["nav"].iloc[-1]
+            ret_pct   = (end_nav - start_nav) / start_nav * 100
+            logger.info(f"Start NAV: ${start_nav:,.2f}  End NAV: ${end_nav:,.2f}  Return: {ret_pct:+.2f}%")
+
+            nav_export = RESULT_DIR / "nav_history_export.csv"
+            nav_df.to_csv(nav_export, index=False)
+            logger.success(f"NAV history → {nav_export}")
+
+        if trade_log:
+            trades_df = pd.DataFrame(trade_log)
+            trades_export = RESULT_DIR / "trade_log.csv"
+            trades_df.to_csv(trades_export, index=False)
+            logger.success(f"Trade log   → {trades_export}")
+
+        logger.info("=" * 55)
+
+    except Exception as e:
+        logger.error(f"Report generation error: {e}")
+
+
+# ── Scheduler setup ────────────────────────────────────────────────────────────
+def start_scheduler(strategies: list, seasonality_analyzer, signals_dict: dict,
+                    run_now: bool = False):
+    """
+    Start two concurrent APScheduler jobs:
+      • price_monitor_job  — every PRICE_MONITOR_SECS seconds (stop/TP)
+      • signal_rebalance_job — every SIGNAL_RECOMPUTE_MINS minutes (signal-driven trades)
+
+    Uses BackgroundScheduler so both loops run independently without blocking
+    each other. Main thread stays alive via a KeyboardInterrupt-safe sleep loop.
+    """
+    setup_logger()
+
+    scheduler = BackgroundScheduler(timezone="UTC")
+
+    # Job 1: Fast price / risk monitor
+    scheduler.add_job(
+        func=price_monitor_job,
+        trigger="interval",
+        seconds=PRICE_MONITOR_SECS,
+        id="price_monitor",
+        name=f"Price & stop monitor (every {PRICE_MONITOR_SECS}s)",
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # Job 2: Signal recompute + conditional rebalance
+    scheduler.add_job(
+        func=signal_rebalance_job,
+        trigger="interval",
+        minutes=SIGNAL_RECOMPUTE_MINS,
+        args=[strategies, seasonality_analyzer, signals_dict],
+        id="signal_rebalance",
+        name=f"Signal recompute & rebalance (every {SIGNAL_RECOMPUTE_MINS}min)",
+        max_instances=1,
+        coalesce=True,
+    )
+
+    scheduler.start()
+
+    logger.info("=" * 55)
+    logger.info("🚀  REAL-TIME ALGO TRADING ENGINE — BINANCE TESTNET")
+    logger.info("=" * 55)
+    logger.info(f"  📊 REAL DATA  |  🎮 TESTNET EXECUTION (paper money)")
+    logger.info(f"  Signal recompute : every {SIGNAL_RECOMPUTE_MINS} min  → places orders only if signal shifts")
+    logger.info(f"  Stop/TP monitor  : every {PRICE_MONITOR_SECS}s   → exits positions immediately on breach")
+    logger.info(f"  Rebalance trigger: total |Δweight| > {REBALANCE_THRESHOLD:.0%}")
+    logger.info(f"  Risk management  : SL={STOP_LOSS_PCT*100:.0f}%  TP={TAKE_PROFIT_PCT*100:.0f}%  TrailStop={TRAILING_STOP_PCT*100:.0f}%")
+    logger.info(f"  Universe         : {len(UNIVERSE)} tokens — {', '.join(s.replace('USDT','') for s in UNIVERSE)}")
+    logger.info("  Press Ctrl+C to stop and generate final report")
+    logger.info("=" * 55)
+
+    if run_now:
+        logger.info("run_now=True — firing initial signal rebalance immediately...")
+        signal_rebalance_job(strategies, seasonality_analyzer, signals_dict)
+
+    try:
+        while True:
+            time.sleep(1)
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("\nGraceful shutdown initiated...")
+        scheduler.shutdown(wait=False)
+        _generate_final_reports()
+        logger.success("Engine stopped.")
