@@ -627,16 +627,43 @@ elif section == "🟢 Live Trading (Testnet)":
             f"Trailing Stop: {TRAILING_STOP_PCT*100:.0f}%"
         )
 
-    # ── Next scheduled run ────────────────────────────────────────────────────
+    # ── Trade History ─────────────────────────────────────────────────────────
+    trade_log = live.get("trade_log", [])
     st.markdown("---")
-    now_utc = datetime.now(timezone.utc)
-    next_06 = now_utc.replace(hour=6, minute=0, second=0, microsecond=0)
-    if now_utc.hour >= 6:
-        next_06 = next_06.replace(day=next_06.day + 1)
-    time_to_next = next_06 - now_utc
-    h, rem = divmod(int(time_to_next.total_seconds()), 3600)
-    m = rem // 60
-    st.info(f"Next scheduled rebalance: **{next_06.strftime('%Y-%m-%d 06:00 UTC')}** (in {h}h {m}m)")
+    st.subheader("Trade History")
+    if trade_log:
+        trades_df = pd.DataFrame(trade_log)
+
+        # Format columns
+        trades_df["time"] = pd.to_datetime(trades_df["time"]).dt.strftime("%Y-%m-%d %H:%M UTC")
+        if "price" in trades_df.columns:
+            trades_df["price"] = trades_df["price"].apply(lambda x: f"${float(x):,.2f}")
+        if "pnl" in trades_df.columns:
+            trades_df["pnl"] = trades_df["pnl"].apply(
+                lambda x: f"{float(x):+.2f}" if pd.notna(x) and str(x) != "" else "—"
+            )
+        if "qty" in trades_df.columns:
+            trades_df["qty"] = trades_df["qty"].apply(lambda x: f"{float(x):.6f}")
+
+        # Pick and rename columns
+        col_map = {
+            "time":     "Time (UTC)",
+            "symbol":   "Symbol",
+            "side":     "Side",
+            "qty":      "Qty",
+            "price":    "Price",
+            "pnl":      "Realised P&L",
+            "strategy": "Strategy",
+            "reason":   "Reason",
+        }
+        available = [c for c in col_map if c in trades_df.columns]
+        trades_df = trades_df[available].rename(columns=col_map)
+
+        # Most recent first
+        st.dataframe(trades_df.iloc[::-1].reset_index(drop=True), use_container_width=True)
+        st.caption(f"Total trades executed: {len(trade_log)}")
+    else:
+        st.info("No trades executed yet — orders will appear here after the first rebalance.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

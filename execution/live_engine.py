@@ -193,6 +193,7 @@ def execute_exits_only(forced_exits: dict, state: dict) -> dict:
                     "price":     exit_price,
                     "pnl":       round(pos_pnl, 4),
                     "reason":    "stop/tp",
+                    "strategy":  ", ".join(state.get("active_strategies", [])),
                     "order_id":  order.get("orderId"),
                 })
                 logger.warning(
@@ -292,6 +293,7 @@ def execute_rebalance(target_weights: pd.Series, state: dict, nav: float,
                     "qty":       qty,
                     "price":     price,
                     "reason":    "signal_rebalance",
+                    "strategy":  ", ".join(state.get("active_strategies", [])),
                     "order_id":  order.get("orderId"),
                 })
 
