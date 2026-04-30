@@ -804,31 +804,28 @@ elif section == "📈 Strategy Monitor":
 
     st.markdown("---")
 
-    # ── Per-strategy current weights ──────────────────────────────────────────
-    st.subheader("Current Would-Be Positions by Strategy")
+    # ── Per-strategy positions + trade history ────────────────────────────────
+    st.subheader("Current Would-Be Positions & Trade History by Strategy")
 
-    strat_names  = list(hypo.keys())
-    cols_per_row = 2
+    for name in hypo.keys():
+        data       = hypo[name]
+        weights    = data.get("weights", {})
+        nav_val    = float(data.get("nav", STARTING_CAPITAL))
+        ret_pct    = (nav_val - STARTING_CAPITAL) / STARTING_CAPITAL * 100
+        marker     = " ★" if name in active_strats else ""
+        ret_color  = "#22c55e" if ret_pct >= 0 else "#ef4444"
+        trade_hist = data.get("trade_history", [])
 
-    for row_start in range(0, len(strat_names), cols_per_row):
-        cols = st.columns(cols_per_row)
-        for col_idx, name in enumerate(strat_names[row_start:row_start + cols_per_row]):
-            data    = hypo[name]
-            weights = data.get("weights", {})
-            nav_val = float(data.get("nav", STARTING_CAPITAL))
-            ret_pct = (nav_val - STARTING_CAPITAL) / STARTING_CAPITAL * 100
-            marker  = " ★" if name in active_strats else ""
+        with st.expander(
+            f"{name}{marker}  —  ${nav_val:,.0f}  ({ret_pct:+.1f}%)  |  {len(trade_hist)} trades",
+            expanded=(name in active_strats),
+        ):
+            col_w, col_t = st.columns([1, 2])
 
-            with cols[col_idx]:
-                ret_color = "#22c55e" if ret_pct >= 0 else "#ef4444"
-                st.markdown(
-                    f"**{name}{marker}** &nbsp; "
-                    f"`${nav_val:,.0f}` "
-                    f"<span style='color:{ret_color}'>({ret_pct:+.1f}%)</span>",
-                    unsafe_allow_html=True,
-                )
+            with col_w:
+                st.markdown("**Current positions**")
                 pos_weights = {
-                    sym.replace("USDT", ""): w
+                    sym.replace("USDT", ""): float(w)
                     for sym, w in weights.items()
                     if float(w) > 0.001
                 }
@@ -838,65 +835,35 @@ elif section == "📈 Strategy Monitor":
                         .sort_values("Weight", ascending=False)
                         .set_index("Token")
                     )
-                    w_df["Weight"] = w_df["Weight"].apply(lambda x: f"{float(x)*100:.1f}%")
+                    w_df["Weight"] = w_df["Weight"].apply(lambda x: f"{x*100:.1f}%")
                     st.dataframe(w_df, use_container_width=True)
                 else:
                     st.caption("No long positions (holding cash)")
 
-    # ── Hypothetical Trade History ────────────────────────────────────────────
-    st.markdown("---")
-    st.subheader("Hypothetical Trade History")
-
-    all_trades = []
-    for name, data in hypo.items():
-        for t in data.get("trade_history", []):
-            all_trades.append({**t, "strategy": name})
-
-    if all_trades:
-        # Strategy filter
-        all_strat_names = list(hypo.keys())
-        selected = st.multiselect(
-            "Filter by strategy",
-            all_strat_names,
-            default=all_strat_names,
-            key="hypo_trade_filter",
-        )
-
-        filtered = [t for t in all_trades if t["strategy"] in selected]
-
-        if filtered:
-            th_df = pd.DataFrame(filtered)
-            th_df["time"] = pd.to_datetime(th_df["time"]).dt.strftime("%Y-%m-%d %H:%M UTC")
-            th_df["price"] = th_df["price"].apply(lambda x: f"${float(x):,.2f}")
-            th_df["hypo_value"] = th_df["hypo_value"].apply(lambda x: f"${float(x):,.0f}")
-            th_df["weight_from"] = th_df["weight_from"].apply(lambda x: f"{x:.1f}%")
-            th_df["weight_to"]   = th_df["weight_to"].apply(lambda x: f"{x:.1f}%")
-            th_df["symbol"] = th_df["symbol"].str.replace("USDT", "")
-
-            th_df = th_df.rename(columns={
-                "time":        "Time (UTC)",
-                "strategy":    "Strategy",
-                "symbol":      "Token",
-                "side":        "Side",
-                "weight_from": "From %",
-                "weight_to":   "To %",
-                "price":       "Price",
-                "hypo_value":  "Hypo Value",
-            })
-
-            col_order = ["Time (UTC)", "Strategy", "Token", "Side", "From %", "To %", "Price", "Hypo Value"]
-            th_df = th_df[[c for c in col_order if c in th_df.columns]]
-
-            # Most recent first
-            st.dataframe(th_df.iloc[::-1].reset_index(drop=True), use_container_width=True)
-            st.caption(
-                f"Showing {len(filtered)} hypothetical trades across {len(selected)} strategies. "
-                "A trade is logged when a strategy's weight in a token shifts by more than 1%."
-            )
-        else:
-            st.info("No trades match the selected strategies.")
-    else:
-        st.info("Hypothetical trades will appear here after the second signal cycle.")
+            with col_t:
+                st.markdown("**Trade history** (most recent first)")
+                if trade_hist:
+                    th_df = pd.DataFrame(trade_hist)
+                    th_df["time"]        = pd.to_datetime(th_df["time"]).dt.strftime("%m-%d %H:%M")
+                    th_df["price"]       = th_df["price"].apply(lambda x: f"${float(x):,.2f}")
+                    th_df["hypo_value"]  = th_df["hypo_value"].apply(lambda x: f"${float(x):,.0f}")
+                    th_df["weight_from"] = th_df["weight_from"].apply(lambda x: f"{x:.0f}%")
+                    th_df["weight_to"]   = th_df["weight_to"].apply(lambda x: f"{x:.0f}%")
+                    th_df["symbol"]      = th_df["symbol"].str.replace("USDT", "")
+                    th_df = th_df.rename(columns={
+                        "time":        "Time",
+                        "symbol":      "Token",
+                        "side":        "Side",
+                        "weight_from": "From",
+                        "weight_to":   "To",
+                        "price":       "Price",
+                        "hypo_value":  "Value",
+                    })
+                    col_order = ["Time", "Token", "Side", "From", "To", "Price", "Value"]
+                    th_df = th_df[[c for c in col_order if c in th_df.columns]]
+                    st.dataframe(th_df.iloc[::-1].reset_index(drop=True), use_container_width=True)
+                else:
+                    st.caption("No trades yet — appears after second signal cycle.")
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────

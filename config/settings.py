@@ -94,7 +94,7 @@ PORTFOLIO_USDT      = 10_000        # Starting capital in USDT (testnet)
 MIN_ORDER_USDT      = 11            # Binance min notional + buffer
 
 # ── Real-time live trading ─────────────────────────────────────────────────────
-SIGNAL_RECOMPUTE_MINS = 60          # How often to recompute signals and check for rebalance
+SIGNAL_RECOMPUTE_MINS = 1           # How often to recompute signals and check for rebalance
 PRICE_MONITOR_SECS    = 60          # How often to poll prices for stop/TP monitoring
 REBALANCE_THRESHOLD   = 0.03        # Min total weight change (sum of |Δw|) to trigger rebalance
 MAX_LIVE_POSITIONS    = 6           # Max number of simultaneous long positions in live trading
