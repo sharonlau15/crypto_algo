@@ -390,6 +390,27 @@ def update_hypotheticals(signals_dict: dict, current_prices: dict, state: dict):
             new_nav = round(prev_nav * (1 + period_return), 2)
             ret_pct = (new_nav - PORTFOLIO_USDT) / PORTFOLIO_USDT * 100
 
+            # Log hypothetical trades — any weight shift > 1% counts as a trade
+            trade_history = hypo[name].setdefault("trade_history", [])
+            ts_now = str(pd.Timestamp.now(tz="UTC"))
+            for sym in UNIVERSE:
+                prev_w = float(prev_weights.get(sym, 0))
+                new_w  = float(new_weights.get(sym, 0))
+                delta_w = new_w - prev_w
+                if abs(delta_w) < 0.01:
+                    continue
+                price      = float(current_prices.get(sym, 0))
+                hypo_value = round(prev_nav * abs(delta_w), 2)
+                trade_history.append({
+                    "time":        ts_now,
+                    "symbol":      sym,
+                    "side":        "BUY" if delta_w > 0 else "SELL",
+                    "weight_from": round(prev_w * 100, 1),
+                    "weight_to":   round(new_w * 100, 1),
+                    "price":       price,
+                    "hypo_value":  hypo_value,
+                })
+
             hypo[name]["nav"]         = new_nav
             hypo[name]["weights"]     = new_weights.to_dict()
             hypo[name]["last_prices"] = {s: current_prices.get(s, 0) for s in UNIVERSE}

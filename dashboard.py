@@ -843,6 +843,61 @@ elif section == "📈 Strategy Monitor":
                 else:
                     st.caption("No long positions (holding cash)")
 
+    # ── Hypothetical Trade History ────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("Hypothetical Trade History")
+
+    all_trades = []
+    for name, data in hypo.items():
+        for t in data.get("trade_history", []):
+            all_trades.append({**t, "strategy": name})
+
+    if all_trades:
+        # Strategy filter
+        all_strat_names = list(hypo.keys())
+        selected = st.multiselect(
+            "Filter by strategy",
+            all_strat_names,
+            default=all_strat_names,
+            key="hypo_trade_filter",
+        )
+
+        filtered = [t for t in all_trades if t["strategy"] in selected]
+
+        if filtered:
+            th_df = pd.DataFrame(filtered)
+            th_df["time"] = pd.to_datetime(th_df["time"]).dt.strftime("%Y-%m-%d %H:%M UTC")
+            th_df["price"] = th_df["price"].apply(lambda x: f"${float(x):,.2f}")
+            th_df["hypo_value"] = th_df["hypo_value"].apply(lambda x: f"${float(x):,.0f}")
+            th_df["weight_from"] = th_df["weight_from"].apply(lambda x: f"{x:.1f}%")
+            th_df["weight_to"]   = th_df["weight_to"].apply(lambda x: f"{x:.1f}%")
+            th_df["symbol"] = th_df["symbol"].str.replace("USDT", "")
+
+            th_df = th_df.rename(columns={
+                "time":        "Time (UTC)",
+                "strategy":    "Strategy",
+                "symbol":      "Token",
+                "side":        "Side",
+                "weight_from": "From %",
+                "weight_to":   "To %",
+                "price":       "Price",
+                "hypo_value":  "Hypo Value",
+            })
+
+            col_order = ["Time (UTC)", "Strategy", "Token", "Side", "From %", "To %", "Price", "Hypo Value"]
+            th_df = th_df[[c for c in col_order if c in th_df.columns]]
+
+            # Most recent first
+            st.dataframe(th_df.iloc[::-1].reset_index(drop=True), use_container_width=True)
+            st.caption(
+                f"Showing {len(filtered)} hypothetical trades across {len(selected)} strategies. "
+                "A trade is logged when a strategy's weight in a token shifts by more than 1%."
+            )
+        else:
+            st.info("No trades match the selected strategies.")
+    else:
+        st.info("Hypothetical trades will appear here after the second signal cycle.")
+
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
