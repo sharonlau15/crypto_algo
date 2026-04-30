@@ -23,7 +23,7 @@ from scipy import stats
 from sklearn.preprocessing import RobustScaler
 from sklearn.model_selection import TimeSeriesSplit
 import lightgbm as lgb
-from statsmodels.tsa.stattools import coint
+
 from loguru import logger
 
 from strategies.base import BaseStrategy
@@ -90,17 +90,15 @@ class MeanReversionStrategy(BaseStrategy):
         p = self.params
         w  = p["zscore_window"]
         ez = p["entry_z"]
-        xz = p["exit_z"]
 
         roll_mean = close.rolling(w).mean()
         roll_std  = close.rolling(w).std()
-        zscore    = (close - roll_mean) / roll_std
+        zscore    = (close - roll_mean) / roll_std.replace(0, np.nan)
 
-        signals = pd.DataFrame(0.0, index=close.index, columns=close.columns)
-        signals[zscore < -ez] = 1.0   # oversold → long
-        signals[zscore >  ez] = -1.0  # overbought → short
-        # Scale signal by how extreme the z-score is (conviction sizing)
-        signals = signals * (zscore.abs() / ez).clip(1, 3) / 3
+        # Continuous signal: full [-1, +1] range proportional to z-score.
+        # Negative z (oversold) → positive signal (long); positive z → short.
+        # Clipped at ±3σ to avoid extreme outlier sizing.
+        signals = (-zscore / (ez * 3)).clip(-1, 1).fillna(0)
         return signals
 
 
@@ -185,7 +183,6 @@ class VolBreakoutStrategy(BaseStrategy):
         return tr.rolling(period).mean()
 
     def generate_signals(self, close, returns, **kwargs):
-        # We need high/low — expect them in kwargs
         high = kwargs.get("high", close)
         low  = kwargs.get("low",  close)
         p    = self.params
@@ -193,12 +190,12 @@ class VolBreakoutStrategy(BaseStrategy):
         signals = pd.DataFrame(0.0, index=close.index, columns=close.columns)
 
         for sym in close.columns:
-            atr       = self._atr(high[sym], low[sym], close[sym], p["atr_period"])
-            upper     = close[sym].shift(1) + p["atr_multiplier"] * atr
-            lower     = close[sym].shift(1) - p["atr_multiplier"] * atr
-            long_sig  = (close[sym] > upper).astype(float)
-            short_sig = (close[sym] < lower).astype(float) * -1
-            signals[sym] = long_sig + short_sig
+            atr      = self._atr(high[sym], low[sym], close[sym], p["atr_period"])
+            midpoint = close[sym].shift(1)
+            half_band = (p["atr_multiplier"] * atr).replace(0, np.nan)
+            # Continuous: how far price is above/below the ATR midpoint,
+            # scaled by band half-width. Always produces a signal in [-1, +1].
+            signals[sym] = ((close[sym] - midpoint) / half_band).clip(-1, 1).fillna(0)
 
         return signals
 
@@ -224,8 +221,6 @@ class PairsTradingStrategy(BaseStrategy):
         sym1, sym2 = p["pair"]
         lb   = p["lookback"]
         ez   = p["entry_z"]
-        xz   = p["exit_z"]
-        pval = p["coint_pvalue"]
 
         signals = pd.DataFrame(0.0, index=close.index, columns=close.columns)
 
@@ -240,13 +235,8 @@ class PairsTradingStrategy(BaseStrategy):
             window1 = log1.iloc[i-lb:i]
             window2 = log2.iloc[i-lb:i]
 
-            # Test cointegration
-            _, p_value, _ = coint(window1, window2)
-            if p_value > pval:
-                continue  # No cointegration — skip
-
-            # OLS hedge ratio
-            beta = np.polyfit(window2, window1, 1)[0]
+            # OLS hedge ratio — no cointegration gate so signal is always live
+            beta   = np.polyfit(window2, window1, 1)[0]
             spread = window1 - beta * window2
             mu, sigma = spread.mean(), spread.std()
             if sigma == 0:
@@ -256,13 +246,10 @@ class PairsTradingStrategy(BaseStrategy):
             z = (current_spread - mu) / sigma
 
             dt = close.index[i]
-            if z < -ez:
-                signals.loc[dt, sym1] =  1.0  # long BTC
-                signals.loc[dt, sym2] = -1.0  # short ETH
-            elif z > ez:
-                signals.loc[dt, sym1] = -1.0  # short BTC
-                signals.loc[dt, sym2] =  1.0  # long ETH
-            # else flat
+            # Continuous signal proportional to z-score, clipped at ±3
+            strength = float(np.clip(-z / (ez * 3), -1, 1))
+            signals.loc[dt, sym1] =  strength
+            signals.loc[dt, sym2] = -strength
 
         return signals
 
@@ -367,9 +354,8 @@ class MacroRotationStrategy(BaseStrategy):
         super().__init__("macro_rotation", STRATEGY_PARAMS["macro_rotation"])
 
     def generate_signals(self, close, returns, **kwargs):
-        p      = self.params
-        proxy  = p["btc_proxy"]
-        lb     = p["lookback"]
+        p     = self.params
+        proxy = p["btc_proxy"]
 
         signals = pd.DataFrame(0.0, index=close.index, columns=close.columns)
 
@@ -379,15 +365,16 @@ class MacroRotationStrategy(BaseStrategy):
 
         btc = close[proxy]
         ma  = btc.rolling(200).mean()
-        risk_on = (btc > ma)  # Boolean series
+        n   = close.shape[1]
 
-        # Risk-on: equal-weight long all tokens
-        n = close.shape[1]
-        signals[risk_on]  = 1.0 / n
-        # Risk-off: flat (no signal)
-        signals[~risk_on] = 0.0
+        # Continuous regime strength: BTC % deviation from 200d MA, clipped ±20%
+        # Positive = risk-on (long all), Negative = risk-off (short all)
+        regime_score = ((btc / ma) - 1).clip(-0.20, 0.20) / 0.20  # [-1, +1]
 
-        return signals
+        for col in close.columns:
+            signals[col] = regime_score / n
+
+        return signals.fillna(0)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
