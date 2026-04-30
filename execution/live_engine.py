@@ -304,24 +304,47 @@ def execute_rebalance(target_weights: pd.Series, state: dict, nav: float,
 
 
 # ── Signal weight computation ──────────────────────────────────────────────────
-def _signal_to_weights(signal_series: pd.Series) -> pd.Series:
-    """Convert a raw signal series to capped, signal-proportional position weights."""
+def _signal_to_weights(signal_series: pd.Series, long_short: bool = False) -> pd.Series:
+    """
+    Convert raw signals to position weights with iterative MAX_POSITION_SIZE capping.
+
+    long_short=False  →  long-only (used for live spot trading, spot testnet
+                          cannot execute short sells without margin)
+    long_short=True   →  50% gross long / 50% gross short, total |w| ≤ 100%
+                          (used for hypothetical paper portfolios)
+    """
+    def _cap_and_scale(sigs: pd.Series, budget: float) -> pd.Series:
+        w = sigs / sigs.sum() * budget
+        for _ in range(20):
+            over = w > MAX_POSITION_SIZE
+            if not over.any():
+                break
+            w[over] = MAX_POSITION_SIZE
+            leftover = budget - w[over].sum()
+            uncapped = ~over
+            if uncapped.any() and w[uncapped].sum() > 0:
+                w[uncapped] = w[uncapped] / w[uncapped].sum() * leftover
+            else:
+                break
+        return w.clip(upper=MAX_POSITION_SIZE)
+
+    weights  = pd.Series(0.0, index=UNIVERSE)
     pos_sigs = signal_series[signal_series > 0].nlargest(MAX_LIVE_POSITIONS)
-    if pos_sigs.empty:
-        return pd.Series(0.0, index=UNIVERSE)
-    weights = pos_sigs / pos_sigs.sum()
-    for _ in range(20):
-        over = weights > MAX_POSITION_SIZE
-        if not over.any():
-            break
-        weights[over] = MAX_POSITION_SIZE
-        leftover = 1.0 - weights[over].sum()
-        uncapped = ~over
-        if uncapped.any() and weights[uncapped].sum() > 0:
-            weights[uncapped] = weights[uncapped] / weights[uncapped].sum() * leftover
-        else:
-            break
-    return weights.clip(upper=MAX_POSITION_SIZE).reindex(UNIVERSE, fill_value=0)
+    neg_sigs = signal_series[signal_series < 0].nsmallest(MAX_LIVE_POSITIONS).abs()
+
+    has_longs  = not pos_sigs.empty
+    has_shorts = long_short and not neg_sigs.empty
+
+    # Split 50/50 when both sides present; one side gets 100% if alone
+    long_budget  = 0.5 if (has_longs and has_shorts) else (1.0 if has_longs else 0.0)
+    short_budget = 0.5 if (has_longs and has_shorts) else (1.0 if has_shorts else 0.0)
+
+    if has_longs:
+        weights[pos_sigs.index] = _cap_and_scale(pos_sigs, long_budget)
+    if has_shorts:
+        weights[neg_sigs.index] = -_cap_and_scale(neg_sigs, short_budget)
+
+    return weights.reindex(UNIVERSE, fill_value=0)
 
 
 def compute_target_weights(
@@ -329,7 +352,7 @@ def compute_target_weights(
     signals_dict: dict,
     close: pd.DataFrame,
 ) -> tuple:
-    """Return (target_weights, active_selection) for the LIVE portfolio."""
+    """Return (target_weights, active_selection) for the LIVE portfolio (long-only, spot-safe)."""
     selection = seasonality_analyzer.select_strategy(
         current_date=close.index[-1], top_n=2,
     )
@@ -342,7 +365,8 @@ def compute_target_weights(
         logger.warning("No positive signals from active strategies — holding cash")
         return pd.Series(0.0, index=UNIVERSE), selection
 
-    return _signal_to_weights(current_sigs), selection
+    # long_short=False: spot testnet cannot execute actual short sells
+    return _signal_to_weights(current_sigs, long_short=False), selection
 
 
 # ── Hypothetical paper portfolios (all 10 strategies simultaneously) ───────────
@@ -359,7 +383,7 @@ def update_hypotheticals(signals_dict: dict, current_prices: dict, state: dict):
             continue
         try:
             latest_sig  = sig_df.iloc[-1].reindex(UNIVERSE, fill_value=0)
-            new_weights = _signal_to_weights(latest_sig)
+            new_weights = _signal_to_weights(latest_sig, long_short=True)
 
             if name not in hypo:
                 hypo[name] = {

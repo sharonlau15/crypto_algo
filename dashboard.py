@@ -722,7 +722,9 @@ elif section == "📈 Strategy Monitor":
         if active_strats:
             st.caption(
                 f"★ LIVE = currently blended by the seasonality/regime layer: "
-                f"**{', '.join(active_strats)}**"
+                f"**{', '.join(active_strats)}**  |  "
+                "Hypothetical portfolios run full long/short (50/50). "
+                "Live portfolio is long-only (Binance spot cannot short without margin)."
             )
 
     st.markdown("---")
@@ -824,21 +826,22 @@ elif section == "📈 Strategy Monitor":
 
             with col_w:
                 st.markdown("**Current positions**")
-                pos_weights = {
+                all_pos = {
                     sym.replace("USDT", ""): float(w)
                     for sym, w in weights.items()
-                    if float(w) > 0.001
+                    if abs(float(w)) > 0.001
                 }
-                if pos_weights:
+                if all_pos:
                     w_df = (
-                        pd.DataFrame(list(pos_weights.items()), columns=["Token", "Weight"])
+                        pd.DataFrame(list(all_pos.items()), columns=["Token", "Weight"])
                         .sort_values("Weight", ascending=False)
                         .set_index("Token")
                     )
-                    w_df["Weight"] = w_df["Weight"].apply(lambda x: f"{x*100:.1f}%")
+                    w_df["Side"]   = w_df["Weight"].apply(lambda x: "LONG" if x > 0 else "SHORT")
+                    w_df["Weight"] = w_df["Weight"].apply(lambda x: f"{abs(x)*100:.1f}%")
                     st.dataframe(w_df, use_container_width=True)
                 else:
-                    st.caption("No long positions (holding cash)")
+                    st.caption("No positions (holding cash)")
 
             with col_t:
                 st.markdown("**Trade history** (most recent first)")
