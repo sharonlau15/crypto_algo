@@ -127,7 +127,7 @@ def max_sharpe_optimize(
     weights[weights.abs() < 0.001] = 0.0
 
     # Enforce min vol constraint: if still below, scale up
-    port_vol = np.sqrt(float(weights.values @ cov_arr @ weights.values))
+    port_vol = np.sqrt(max(0.0, float(weights.values @ cov_arr @ weights.values)))
     if port_vol < min_vol and port_vol > 0:
         scale = min_vol / port_vol
         weights = (weights * scale).clip(-max_pos, max_pos)
@@ -161,7 +161,7 @@ def _equal_weight_fallback(
 def compute_portfolio_vol(weights: dict, cov: pd.DataFrame) -> float:
     """Compute annualized portfolio volatility from weights and covariance."""
     w = pd.Series(weights).reindex(cov.index, fill_value=0).values
-    return float(np.sqrt(w @ cov.values @ w))
+    return float(np.sqrt(max(0.0, float(w @ cov.values @ w))))
 
 
 def compute_portfolio_sharpe(
