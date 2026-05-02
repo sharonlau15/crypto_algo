@@ -8,14 +8,18 @@ Interactive Streamlit dashboard — two independent sections:
 Run with: streamlit run dashboard.py
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-from pathlib import Path
 import json
 from datetime import datetime, timezone
+from config.settings import UNIVERSE
 
 RESULT_DIR = Path("results")
 STARTING_CAPITAL = 10_000  # must match settings.PORTFOLIO_USDT
