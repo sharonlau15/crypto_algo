@@ -93,9 +93,11 @@ def max_sharpe_optimize(
             "fun": lambda w: max_w_sum - np.abs(w).sum(),
         },
         # Annualized vol ≥ min_vol  (project spec: 3%)
+        # Clamp to 0 before sqrt: w@cov@w can go slightly negative due to
+        # floating-point precision in near-singular covariance matrices.
         {
             "type": "ineq",
-            "fun": lambda w: float(np.sqrt(w @ cov_arr @ w)) - min_vol,
+            "fun": lambda w: float(np.sqrt(max(0.0, float(w @ cov_arr @ w)))) - min_vol,
         },
     ]
 
