@@ -120,12 +120,19 @@ class RiskParityStrategy(BaseStrategy):
     def generate_signals(self, close, returns, **kwargs):
         lb = self.params["lookback"]
         roll_vol = returns.rolling(lb).std()
-        inv_vol  = 1.0 / roll_vol
-        # Normalize rows to sum to 1
-        signals  = inv_vol.div(inv_vol.sum(axis=1), axis=0)
-        signals  = signals.fillna(0)
-        # Reindex to match close shape (returns has one fewer row)
-        signals = signals.reindex(close.index, fill_value=0)
+
+        # Replace inf (zero-vol / stale tokens like MATICUSDT post-migration) with NaN
+        # so they are excluded from weighting rather than poisoning the entire row.
+        inv_vol = (1.0 / roll_vol).replace([np.inf, -np.inf], np.nan)
+
+        # Normalize per row using only the tokens that have valid vol estimates.
+        # pandas sum(axis=1) skips NaN by default, so stale tokens get 0 weight.
+        row_sum = inv_vol.sum(axis=1, skipna=True)
+        signals = inv_vol.div(row_sum.replace(0, np.nan), axis=0).fillna(0)
+
+        # Reindex to match close shape (returns has one fewer row due to dropna),
+        # then forward-fill so the last row always has a valid signal.
+        signals = signals.reindex(close.index, fill_value=0).ffill().fillna(0)
         return signals
 
 

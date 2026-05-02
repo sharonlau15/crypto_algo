@@ -644,13 +644,23 @@ def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: d
         save_state(state)  # persist hypotheticals even on error
         return
 
-    # 6. Compare to last known weights — only rebalance if signal changed
-    prev_weights = pd.Series(state.get("current_weights", {})).reindex(UNIVERSE, fill_value=0)
+    # 6. Compare ACTUAL live positions (not saved target) vs new target.
+    #    Using saved target caused a permanent HOLD when initial execution was partial:
+    #    saved-target == new-target → delta = 0 even though actual positions differ.
+    nav_actual = compute_nav(state, prices)
+    if nav_actual > 0:
+        prev_weights = pd.Series({
+            sym: (state["positions"].get(sym, 0) * prices.get(sym, 0)) / nav_actual
+            for sym in UNIVERSE
+        }).reindex(UNIVERSE, fill_value=0)
+    else:
+        prev_weights = pd.Series(state.get("current_weights", {})).reindex(UNIVERSE, fill_value=0)
+
     new_aligned  = new_weights.reindex(UNIVERSE, fill_value=0)
     weight_delta = (new_aligned - prev_weights).abs().sum()
 
     # Print weight delta table
-    logger.info(f"{'Symbol':<12} {'Current':>8} {'Target':>8} {'Delta':>8}  {'Action'}")
+    logger.info(f"{'Symbol':<12} {'Actual':>8} {'Target':>8} {'Delta':>8}  {'Action'}")
     logger.info("─" * 52)
     for sym in UNIVERSE:
         pw = float(prev_weights.get(sym, 0))
