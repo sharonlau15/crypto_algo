@@ -151,13 +151,14 @@ class SeasonalityAnalyzer:
     def _compute_live_scores(
         self,
         hypotheticals: dict,
-        window_days: int = 7,
+        window_days: int = 2,
     ) -> tuple[pd.Series, float]:
         """
         Compute rolling Sharpe from each strategy's hypothetical NAV history.
 
-        Returns (scores Series, live_weight) where live_weight ramps
-        0 → 0.5 over the first 14 calendar days of live data.
+        Crypto-tuned defaults:
+          window_days=2  — 48-hour rolling Sharpe (captures current regime)
+          live_weight ramps 0 → 0.70 over 3 days (not 14 — crypto moves fast)
         """
         scores    = {}
         earliest  = None
@@ -187,12 +188,13 @@ class SeasonalityAnalyzer:
 
         score_series = pd.Series(scores)
 
-        # Ramp live weight: 0% on day 0, capped at 50% after 14 days
+        # Ramp live weight: 0% on day 0, caps at 80% after 2 days.
+        # Backtest score acts as a prior / jumpoff point only — live P&L takes over quickly.
         if earliest is None:
             live_weight = 0.0
         else:
             days_live   = (pd.Timestamp.utcnow() - earliest).total_seconds() / 86400
-            live_weight = float(min(days_live / 14, 0.5))
+            live_weight = float(min(days_live / 2, 0.80))
 
         return score_series, live_weight
 

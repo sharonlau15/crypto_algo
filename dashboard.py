@@ -722,9 +722,9 @@ elif section == "📈 Strategy Monitor":
         if active_strats:
             st.caption(
                 f"★ LIVE = currently active: **{', '.join(active_strats)}**  |  "
-                "Selection = backtest regime/seasonality score blended with live rolling Sharpe "
-                "(live weight ramps 0→50% over 14 days). A better-performing hypothetical "
-                "strategy will take over once its live score is high enough. "
+                "Selection = backtest score (jumpoff) blended with 48h rolling Sharpe from live hypotheticals "
+                "(live weight ramps 0→80% over 2 days). A better-performing strategy "
+                "can take over within 2 days once its live score is high enough. "
                 "Hypothetical portfolios run full long/short (50/50). "
                 "Live portfolio is long-only (Binance spot cannot short without margin)."
             )
@@ -763,20 +763,20 @@ elif section == "📈 Strategy Monitor":
         days_live = 0.0
         if earliest_date is not None:
             days_live = (pd.Timestamp.utcnow() - earliest_date).total_seconds() / 86400
-        live_weight_pct = min(days_live / 14, 0.5) * 100
+        live_weight_pct = min(days_live / 2, 0.80) * 100
 
         col_prog, col_info = st.columns([2, 3])
         with col_prog:
             st.metric(
                 "Live Data Trust Level",
                 f"{live_weight_pct:.0f}%",
-                help="Ramps from 0% to 50% over 14 days. At 50%, live rolling Sharpe "
-                     "has equal say with backtest scores in strategy selection.",
+                help="Ramps from 0% → 80% over 2 days. Backtest score is just a jumpoff "
+                     "point — live rolling Sharpe quickly takes majority weight.",
             )
-            st.progress(min(live_weight_pct / 50, 1.0))
+            st.progress(min(live_weight_pct / 80, 1.0))
             st.caption(
-                f"Day {days_live:.1f} of 14 — "
-                f"{'Live scores now influence selection.' if live_weight_pct > 0 else 'Backtest scores only until live data builds up.'}"
+                f"Day {days_live:.1f} of 2 — "
+                f"{'Live scores driving selection.' if live_weight_pct >= 80 else f'Building up ({live_weight_pct:.0f}% live, {100 - live_weight_pct:.0f}% backtest).'}"
             )
 
         with col_info:
