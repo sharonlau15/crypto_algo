@@ -721,11 +721,104 @@ elif section == "📈 Strategy Monitor":
         )
         if active_strats:
             st.caption(
-                f"★ LIVE = currently blended by the seasonality/regime layer: "
-                f"**{', '.join(active_strats)}**  |  "
+                f"★ LIVE = currently active: **{', '.join(active_strats)}**  |  "
+                "Selection = backtest regime/seasonality score blended with live rolling Sharpe "
+                "(live weight ramps 0→50% over 14 days). A better-performing hypothetical "
+                "strategy will take over once its live score is high enough. "
                 "Hypothetical portfolios run full long/short (50/50). "
                 "Live portfolio is long-only (Binance spot cannot short without margin)."
             )
+
+    st.markdown("---")
+
+    # ── Live Competition Panel ────────────────────────────────────────────────
+    st.subheader("🏆 Live Competition — Strategy Takeover Tracker")
+
+    # Compute rolling 7-day Sharpe for each strategy from NAV history
+    live_scores = {}
+    earliest_date = None
+    for name, data in hypo.items():
+        hist = data.get("nav_history", [])
+        if len(hist) < 3:
+            continue
+        try:
+            navs = pd.Series(
+                [h["nav"] for h in hist],
+                index=pd.to_datetime([h["date"] for h in hist])
+            ).sort_index()
+            if earliest_date is None or navs.index[0] < earliest_date:
+                earliest_date = navs.index[0]
+            cutoff = navs.index[-1] - pd.Timedelta(days=7)
+            recent = navs[navs.index >= cutoff]
+            if len(recent) >= 3:
+                rets = recent.pct_change().dropna()
+                if rets.std() > 0:
+                    live_scores[name] = float(rets.mean() / rets.std())
+                else:
+                    live_scores[name] = 0.0
+        except Exception:
+            pass
+
+    if live_scores:
+        days_live = 0.0
+        if earliest_date is not None:
+            days_live = (pd.Timestamp.utcnow() - earliest_date).total_seconds() / 86400
+        live_weight_pct = min(days_live / 14, 0.5) * 100
+
+        col_prog, col_info = st.columns([2, 3])
+        with col_prog:
+            st.metric(
+                "Live Data Trust Level",
+                f"{live_weight_pct:.0f}%",
+                help="Ramps from 0% to 50% over 14 days. At 50%, live rolling Sharpe "
+                     "has equal say with backtest scores in strategy selection.",
+            )
+            st.progress(min(live_weight_pct / 50, 1.0))
+            st.caption(
+                f"Day {days_live:.1f} of 14 — "
+                f"{'Live scores now influence selection.' if live_weight_pct > 0 else 'Backtest scores only until live data builds up.'}"
+            )
+
+        with col_info:
+            score_df = pd.DataFrame([
+                {
+                    "Strategy":        name,
+                    "7-day Sharpe":    round(score, 3),
+                    "Currently Live":  "★" if name in active_strats else "",
+                    "Would Takeover":  "→ CANDIDATE" if (
+                        score > 0 and name not in active_strats and
+                        len(live_scores) > 0 and
+                        score >= sorted(live_scores.values(), reverse=True)[:2][-1]
+                    ) else "",
+                }
+                for name, score in sorted(live_scores.items(), key=lambda x: -x[1])
+            ])
+
+            def _color_score(v):
+                try:
+                    v = float(v)
+                    if v > 0.5: return "color: #22c55e; font-weight: bold"
+                    if v < 0: return "color: #ef4444"
+                except Exception:
+                    pass
+                return ""
+
+            st.dataframe(
+                score_df.set_index("Strategy").style
+                    .applymap(_color_score, subset=["7-day Sharpe"])
+                    .applymap(lambda v: "color: #22c55e; font-weight: bold" if v == "★" else "", subset=["Currently Live"])
+                    .applymap(lambda v: "color: #f59e0b; font-weight: bold" if "CANDIDATE" in str(v) else "", subset=["Would Takeover"]),
+                use_container_width=True,
+            )
+            st.caption(
+                "**→ CANDIDATE**: outperforming enough to displace a current active strategy "
+                "once live weight is sufficient. The engine re-evaluates every signal cycle."
+            )
+    else:
+        st.info(
+            "Live competition scores appear after a few signal cycles of NAV history. "
+            "Check back after 3+ updates."
+        )
 
     st.markdown("---")
 

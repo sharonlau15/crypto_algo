@@ -147,11 +147,61 @@ class SeasonalityAnalyzer:
         self._regime.index.name = "regime"
         return self._regime
 
+    # ── Live performance scoring ───────────────────────────────────────────────
+    def _compute_live_scores(
+        self,
+        hypotheticals: dict,
+        window_days: int = 7,
+    ) -> tuple[pd.Series, float]:
+        """
+        Compute rolling Sharpe from each strategy's hypothetical NAV history.
+
+        Returns (scores Series, live_weight) where live_weight ramps
+        0 → 0.5 over the first 14 calendar days of live data.
+        """
+        scores    = {}
+        earliest  = None
+
+        for name, hyp in hypotheticals.items():
+            nav_hist = hyp.get("nav_history", [])
+            if len(nav_hist) < 3:
+                scores[name] = np.nan
+                continue
+            try:
+                dates = pd.to_datetime([h["date"] for h in nav_hist])
+                navs  = pd.Series([h["nav"] for h in nav_hist], index=dates).sort_index()
+
+                if earliest is None or navs.index[0] < earliest:
+                    earliest = navs.index[0]
+
+                cutoff = navs.index[-1] - pd.Timedelta(days=window_days)
+                recent = navs[navs.index >= cutoff]
+                if len(recent) < 3:
+                    scores[name] = np.nan
+                    continue
+
+                rets = recent.pct_change().dropna()
+                scores[name] = float(rets.mean() / rets.std()) if rets.std() > 0 else 0.0
+            except Exception:
+                scores[name] = np.nan
+
+        score_series = pd.Series(scores)
+
+        # Ramp live weight: 0% on day 0, capped at 50% after 14 days
+        if earliest is None:
+            live_weight = 0.0
+        else:
+            days_live   = (pd.Timestamp.utcnow() - earliest).total_seconds() / 86400
+            live_weight = float(min(days_live / 14, 0.5))
+
+        return score_series, live_weight
+
     # ── Strategy selector ──────────────────────────────────────────────────────
     def select_strategy(
         self,
         current_date: pd.Timestamp | None = None,
         top_n: int = 2,
+        hypotheticals: dict | None = None,
     ) -> list[tuple[str, float]]:
         """
         Given the current date, determine the current regime and season,
@@ -159,8 +209,11 @@ class SeasonalityAnalyzer:
 
         Parameters
         ----------
-        current_date : pd.Timestamp — defaults to today
-        top_n        : int — how many strategies to blend
+        current_date  : pd.Timestamp — defaults to today
+        top_n         : int — how many strategies to blend
+        hypotheticals : dict — live hypothetical state from live_state.json;
+                        when provided, live rolling Sharpe is blended in
+                        (weight ramps 0 → 50% over the first 14 days)
 
         Returns
         -------
@@ -188,7 +241,7 @@ class SeasonalityAnalyzer:
         monthly_scores = self._monthly.loc[current_month].dropna() \
             if current_month in self._monthly.index else pd.Series()
 
-        # Blend: 70% regime, 30% monthly seasonality
+        # Backtest score: 70% regime Sharpe + 30% monthly seasonality
         combined = {}
         for strat in regime_scores.index:
             try:
@@ -198,15 +251,48 @@ class SeasonalityAnalyzer:
             except (KeyError, ValueError, TypeError):
                 combined[strat] = 0.0
 
-        combined = pd.Series(combined)
-        combined = combined.dropna().sort_values(ascending=False)
+        backtest_scores = pd.Series(combined).dropna()
 
-        if combined.empty:
+        # Blend in live scores when hypothetical data is available
+        if hypotheticals:
+            live_scores, live_weight = self._compute_live_scores(hypotheticals)
+            valid_live = live_scores.dropna()
+
+            if live_weight > 0 and not valid_live.empty:
+                # Normalise live scores to backtest scale (z-score so units match)
+                if valid_live.std() > 0:
+                    live_norm = (valid_live - valid_live.mean()) / valid_live.std()
+                    # Rescale to backtest score range
+                    if backtest_scores.std() > 0:
+                        live_norm = live_norm * backtest_scores.std() + backtest_scores.mean()
+                else:
+                    live_norm = valid_live
+
+                blended = {}
+                for strat in backtest_scores.index:
+                    bt  = float(backtest_scores.loc[strat])
+                    lv  = float(live_norm.loc[strat]) if strat in live_norm.index else bt
+                    blended[strat] = (1 - live_weight) * bt + live_weight * lv
+                combined_scores = pd.Series(blended).dropna()
+                logger.info(
+                    f"Live score blend: live_weight={live_weight:.0%} "
+                    f"(ramps to 50% over 14 days)"
+                )
+            else:
+                combined_scores = backtest_scores
+                if hypotheticals:
+                    logger.info("Live scores not yet available — using backtest scores only")
+        else:
+            combined_scores = backtest_scores
+
+        combined_scores = combined_scores.sort_values(ascending=False)
+
+        if combined_scores.empty:
             logger.warning("No strategy scored — defaulting to top strategy overall")
             return [("momentum", 1.0)]
 
         # Select top N and assign blend weights proportional to score
-        top    = combined.head(top_n)
+        top    = combined_scores.head(top_n)
         scores = top.clip(lower=0)
         total  = scores.sum()
         if total == 0:

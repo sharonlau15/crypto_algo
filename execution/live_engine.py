@@ -351,10 +351,12 @@ def compute_target_weights(
     seasonality_analyzer,
     signals_dict: dict,
     close: pd.DataFrame,
+    hypotheticals: dict = None,
 ) -> tuple:
     """Return (target_weights, active_selection) for the LIVE portfolio (long-only, spot-safe)."""
     selection = seasonality_analyzer.select_strategy(
         current_date=close.index[-1], top_n=2,
+        hypotheticals=hypotheticals,
     )
     logger.info(f"Active strategy blend: {selection}")
 
@@ -618,12 +620,13 @@ def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: d
     logger.info("Updating hypothetical paper portfolios...")
     update_hypotheticals(signals_dict, prices, state)
 
-    # 5. New target weights for LIVE portfolio
+    # 5. New target weights for LIVE portfolio (live hypothetical perf feeds selection)
     try:
         new_weights, active_sel = compute_target_weights(
             seasonality_analyzer=seasonality_analyzer,
             signals_dict=signals_dict,
             close=close,
+            hypotheticals=state.get("hypothetical", {}),
         )
         state["active_strategies"] = [name for name, _ in active_sel]
     except Exception as e:
