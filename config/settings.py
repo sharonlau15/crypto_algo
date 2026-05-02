@@ -66,7 +66,7 @@ MIN_DAILY_VOLUME_USDT = 10_000_000
 # ── Data ───────────────────────────────────────────────────────────────────────
 KLINE_INTERVAL      = "1d"          # Daily bars for portfolio rebalancing
 KLINE_INTERVAL_1H   = "1h"          # 1h bars for intraday signals
-BACKTEST_START      = "2021-01-01"  # Earliest reliable data for most tokens
+BACKTEST_START      = "2023-01-01"  # Post-LUNA/FTX: cleaner market structure
 BACKTEST_END        = None          # None = today
 CACHE_EXPIRY_HOURS  = 6             # Re-fetch if cached data is older than this
 
@@ -75,7 +75,7 @@ MIN_ANNUALIZED_VOL  = 0.03          # 3% floor as per project spec
 MAX_WEIGHT_SUM      = 1.00          # |w|_1 ≤ 100%
 LONG_SHORT          = True          # Allow short positions
 DOLLAR_NEUTRAL      = False         # Not required per spec
-RISK_LOOKBACK_DAYS  = 252           # 1Y daily returns for covariance
+RISK_LOOKBACK_DAYS  = 180           # 6M covariance — recent conditions matter more in crypto
 REBALANCE_FREQ      = "1d"          # Daily rebalance (T+1 execution)
 MAX_POSITION_SIZE   = 0.20          # Single token cap at 20% (forces ≥5 positions)
 TRANSACTION_COST_BP = 10            # 10 bps round-trip (Binance maker/taker)
@@ -134,7 +134,7 @@ STRATEGY_PARAMS = {
     },
     "ml_signal": {
         "feature_lookbacks": [1, 3, 5, 10, 21],
-        "train_window":      252,
+        "train_window":      180,   # 6M rolling train — matches RISK_LOOKBACK_DAYS
         "n_estimators":      200,
         "max_depth":         4,
         "learning_rate":     0.05,
