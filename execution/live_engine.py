@@ -213,6 +213,27 @@ def execute_rebalance(target_weights: pd.Series, state: dict, nav: float,
     """Place orders to shift current weights towards target weights."""
     client = get_client(for_trading=True)
 
+    # Reconcile internal cash tracking with actual testnet USDT balance.
+    # Fees (0.1% per trade) and lot-size rounding cause drift over time.
+    try:
+        account_info = client.get_account()
+        actual_usdt  = float(next(
+            (a["free"] for a in account_info.get("balances", []) if a["asset"] == "USDT"),
+            state["cash_usdt"],
+        ))
+        if abs(actual_usdt - state["cash_usdt"]) > 1.0:
+            logger.info(
+                f"Cash reconciliation: internal=${state['cash_usdt']:,.2f} "
+                f"→ actual testnet=${actual_usdt:,.2f} "
+                f"(drift=${actual_usdt - state['cash_usdt']:+.2f}, likely fees)"
+            )
+            state["cash_usdt"] = actual_usdt
+    except Exception as e:
+        logger.warning(f"Cash reconciliation skipped: {e}")
+
+    # Leave a small buffer so fees on the last BUY don't push over the limit
+    available_cash = state["cash_usdt"] * 0.999
+
     current_values = {
         sym: state["positions"].get(sym, 0) * current_prices.get(sym, 0)
         for sym in UNIVERSE
@@ -249,6 +270,16 @@ def execute_rebalance(target_weights: pd.Series, state: dict, nav: float,
 
             side = "BUY" if delta_usdt > 0 else "SELL"
 
+            # Cap BUY size to available cash (fees + rounding can exceed balance)
+            if side == "BUY":
+                delta_usdt = min(delta_usdt, available_cash)
+                if delta_usdt < MIN_ORDER_USDT:
+                    logger.info(f"  Skipping {sym}: insufficient cash (${available_cash:.2f} available)")
+                    continue
+                qty = round((delta_usdt / price) // step * step, 8)
+                if qty <= 0:
+                    continue
+
             if PAPER_TRADING:
                 order = client.create_order(
                     symbol=sym, side=side, type="MARKET", quantity=qty,
@@ -276,8 +307,9 @@ def execute_rebalance(target_weights: pd.Series, state: dict, nav: float,
                             f"Stop Loss=${sl_price:,.2f} (-{STOP_LOSS_PCT*100:.0f}%) | "
                             f"Take Profit=${tp_price:,.2f} (+{TAKE_PROFIT_PCT*100:.0f}%)"
                         )
-                    state["positions"][sym] = state["positions"].get(sym, 0) + qty
-                    state["cash_usdt"]     -= qty * price
+                    state["positions"][sym]  = state["positions"].get(sym, 0) + qty
+                    state["cash_usdt"]      -= cost
+                    available_cash          -= cost  # track within this rebalance loop
                 else:
                     entry_price = state.get("position_entries", {}).get(sym, {}).get("entry_price", price)
                     sell_pnl    = (price - entry_price) * qty
