@@ -55,7 +55,7 @@ UNIVERSE = [
     "AVAXUSDT",  # Avalanche      — L1 / DeFi
     "DOTUSDT",   # Polkadot       — interoperability
     "LINKUSDT",  # Chainlink      — oracle / data feeds
-    "MATICUSDT", # Polygon        — L2 scaling
+    "POLUSDT",   # Polygon (POL)  — L2 scaling (MATIC delisted Sep 2024)
     "ATOMUSDT",  # Cosmos         — IBC ecosystem
     "LTCUSDT",   # Litecoin       — BTC proxy / payments
 ]

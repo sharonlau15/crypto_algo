@@ -215,7 +215,7 @@ class SeasonalityAnalyzer:
         top_n         : int — how many strategies to blend
         hypotheticals : dict — live hypothetical state from live_state.json;
                         when provided, live rolling Sharpe is blended in
-                        (weight ramps 0 → 50% over the first 14 days)
+                        (weight ramps 0 → 80% over the first 2 days)
 
         Returns
         -------
@@ -278,7 +278,7 @@ class SeasonalityAnalyzer:
                 combined_scores = pd.Series(blended).dropna()
                 logger.info(
                     f"Live score blend: live_weight={live_weight:.0%} "
-                    f"(ramps to 50% over 14 days)"
+                    f"(ramps to 80% over 2 days)"
                 )
             else:
                 combined_scores = backtest_scores

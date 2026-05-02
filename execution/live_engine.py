@@ -234,6 +234,9 @@ def execute_rebalance(target_weights: pd.Series, state: dict, nav: float,
 
         try:
             info = client.get_symbol_info(sym)
+            if info is None:
+                logger.warning(f"Symbol info not found for {sym} — skipping (possibly delisted or renamed)")
+                continue
             step = next(
                 float(f["stepSize"])
                 for f in info["filters"]
