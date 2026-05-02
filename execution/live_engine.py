@@ -385,20 +385,39 @@ def update_hypotheticals(signals_dict: dict, current_prices: dict, state: dict):
             latest_sig  = sig_df.iloc[-1].reindex(UNIVERSE, fill_value=0)
             new_weights = _signal_to_weights(latest_sig, long_short=True)
 
+            ts_now = str(pd.Timestamp.now(tz="UTC"))
+
             if name not in hypo:
+                # Log initial positions as entry trades
+                initial_trades = []
+                for sym in UNIVERSE:
+                    w = float(new_weights.get(sym, 0))
+                    if abs(w) >= 0.01:
+                        initial_trades.append({
+                            "time":        ts_now,
+                            "symbol":      sym,
+                            "side":        "BUY" if w > 0 else "SELL",
+                            "weight_from": 0.0,
+                            "weight_to":   round(w * 100, 1),
+                            "price":       float(current_prices.get(sym, 0)),
+                            "hypo_value":  round(PORTFOLIO_USDT * abs(w), 2),
+                        })
                 hypo[name] = {
-                    "nav":         PORTFOLIO_USDT,
-                    "weights":     new_weights.to_dict(),
-                    "last_prices": {s: current_prices.get(s, 0) for s in UNIVERSE},
-                    "nav_history": [{
-                        "date": str(pd.Timestamp.now(tz="UTC")),
-                        "nav":  PORTFOLIO_USDT,
-                    }],
+                    "nav":          PORTFOLIO_USDT,
+                    "weights":      new_weights.to_dict(),
+                    "last_prices":  {s: current_prices.get(s, 0) for s in UNIVERSE},
+                    "nav_history":  [{"date": ts_now, "nav": PORTFOLIO_USDT}],
+                    "trade_history": initial_trades,
                 }
-                logger.info(f"  📊 [HYPO INIT] {name} — starting at ${PORTFOLIO_USDT:,.0f}")
+                logger.info(
+                    f"  📊 [HYPO INIT] {name} — starting at ${PORTFOLIO_USDT:,.0f} "
+                    f"| {len(initial_trades)} initial positions"
+                )
                 continue
 
             # Period return = held weights × fractional price moves since last cycle
+            # Negative weights (shorts) are included — w*(p1-p0)/p0 is negative when
+            # short and price rises, positive when short and price falls (correct).
             prev_weights = pd.Series(hypo[name].get("weights", {})).reindex(UNIVERSE, fill_value=0)
             prev_prices  = hypo[name].get("last_prices", {})
             prev_nav     = float(hypo[name]["nav"])
@@ -408,15 +427,30 @@ def update_hypotheticals(signals_dict: dict, current_prices: dict, state: dict):
                 w  = float(prev_weights.get(sym, 0))
                 p0 = float(prev_prices.get(sym, 0))
                 p1 = float(current_prices.get(sym, 0))
-                if w > 0 and p0 > 0 and p1 > 0:
+                if abs(w) > 0 and p0 > 0 and p1 > 0:
                     period_return += w * (p1 - p0) / p0
+
+            # If trade_history is missing (state file from before this fix), backfill
+            # the current weights as initial entries so history is never empty
+            trade_history = hypo[name].setdefault("trade_history", [])
+            if not trade_history:
+                for sym in UNIVERSE:
+                    pw = float(prev_weights.get(sym, 0))
+                    if abs(pw) >= 0.01:
+                        trade_history.append({
+                            "time":        ts_now,
+                            "symbol":      sym,
+                            "side":        "BUY" if pw > 0 else "SELL",
+                            "weight_from": 0.0,
+                            "weight_to":   round(pw * 100, 1),
+                            "price":       float(current_prices.get(sym, 0)),
+                            "hypo_value":  round(prev_nav * abs(pw), 2),
+                        })
 
             new_nav = round(prev_nav * (1 + period_return), 2)
             ret_pct = (new_nav - PORTFOLIO_USDT) / PORTFOLIO_USDT * 100
 
             # Log hypothetical trades — any weight shift > 1% counts as a trade
-            trade_history = hypo[name].setdefault("trade_history", [])
-            ts_now = str(pd.Timestamp.now(tz="UTC"))
             for sym in UNIVERSE:
                 prev_w = float(prev_weights.get(sym, 0))
                 new_w  = float(new_weights.get(sym, 0))
