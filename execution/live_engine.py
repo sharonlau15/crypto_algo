@@ -612,15 +612,24 @@ def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: d
             pass
     logger.info("─" * 55)
 
-    # 3. Fetch current prices (used for hypotheticals + potential rebalance)
+    # 3. Snapshot latest signals to state (dashboard reads these)
+    signals_snapshot = {}
+    for name, sig_df in signals_dict.items():
+        if sig_df is not None and not sig_df.empty:
+            latest = sig_df.iloc[-1].reindex(UNIVERSE, fill_value=0)
+            signals_snapshot[name] = {k: round(float(v), 4) for k, v in latest.items()}
+    state["latest_signals"] = signals_snapshot
+    state["signals_updated_at"] = str(datetime.now(timezone.utc))
+
+    # 4. Fetch current prices (used for hypotheticals + potential rebalance)
     prices = fetch_current_prices()
 
-    # 4. Update hypothetical paper portfolios for all 10 strategies
+    # 5. Update hypothetical paper portfolios for all 10 strategies
     logger.info("─" * 55)
     logger.info("Updating hypothetical paper portfolios...")
     update_hypotheticals(signals_dict, prices, state)
 
-    # 5. New target weights for LIVE portfolio (live hypothetical perf feeds selection)
+    # 6. New target weights for LIVE portfolio (live hypothetical perf feeds selection)
     try:
         new_weights, active_sel = compute_target_weights(
             seasonality_analyzer=seasonality_analyzer,
@@ -628,7 +637,8 @@ def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: d
             close=close,
             hypotheticals=state.get("hypothetical", {}),
         )
-        state["active_strategies"] = [name for name, _ in active_sel]
+        state["active_strategies"]      = [name for name, _ in active_sel]
+        state["active_strategy_weights"] = {name: round(w, 4) for name, w in active_sel}
     except Exception as e:
         logger.error(f"Weight computation failed: {e}")
         save_state(state)  # persist hypotheticals even on error

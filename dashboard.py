@@ -486,6 +486,34 @@ elif section == "🟢 Live Trading (Testnet)":
     else:
         st.info("Engine is running — no rebalance cycle has completed yet.")
 
+    # ── Active Strategy Banner ────────────────────────────────────────────────
+    active_strats  = live.get("active_strategies", [])
+    active_weights = live.get("active_strategy_weights", {})
+    sig_updated_at = live.get("signals_updated_at")
+
+    if active_strats:
+        st.markdown("### 🎯 Currently Active Strategies")
+        cols_strat = st.columns(len(active_strats))
+        for i, name in enumerate(active_strats):
+            blend_w = active_weights.get(name, 1.0 / len(active_strats))
+            with cols_strat[i]:
+                st.markdown(
+                    f"<div style='background:#1e3a5f;border-radius:10px;padding:14px;text-align:center'>"
+                    f"<div style='color:#93c5fd;font-size:13px;font-weight:bold'>ACTIVE STRATEGY</div>"
+                    f"<div style='color:white;font-size:20px;font-weight:bold;margin:6px 0'>{name}</div>"
+                    f"<div style='color:#22c55e;font-size:16px'>Blend: {blend_w*100:.0f}%</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+        if sig_updated_at:
+            sig_ts = pd.Timestamp(sig_updated_at)
+            st.caption(
+                f"Signals last computed: {sig_ts.strftime('%Y-%m-%d %H:%M UTC')}  |  "
+                "Strategy blend set by backtest regime/seasonality score + live 48h rolling Sharpe."
+            )
+    else:
+        st.info("No active strategies recorded yet — appears after the first signal cycle.")
+
     # ── Parse state ───────────────────────────────────────────────────────────
     positions        = live.get("positions", {})
     cash_usdt        = live.get("cash_usdt", STARTING_CAPITAL)
@@ -627,6 +655,80 @@ elif section == "🟢 Live Trading (Testnet)":
             f"Trailing Stop: {TRAILING_STOP_PCT*100:.0f}%"
         )
 
+    # ── Strategy Signal Heatmap ───────────────────────────────────────────────
+    latest_signals = live.get("latest_signals", {})
+    if latest_signals:
+        st.markdown("---")
+        st.subheader("📡 Current Strategy Signals")
+        st.caption(
+            "Signal strength per strategy × token. "
+            "Green = bullish (long), Red = bearish (short), Gray = neutral. "
+            "Values are in [-1, +1]."
+        )
+
+        # Build matrix: rows=strategies, cols=tokens (strip USDT for readability)
+        token_labels = [s.replace("USDT", "") for s in UNIVERSE]
+        sig_matrix   = []
+        row_labels   = []
+        for name, sig_dict in latest_signals.items():
+            row = [float(sig_dict.get(sym, 0)) for sym in UNIVERSE]
+            sig_matrix.append(row)
+            marker = " ★" if name in active_strats else ""
+            row_labels.append(f"{name}{marker}")
+
+        if sig_matrix:
+            sig_df_plot = pd.DataFrame(sig_matrix, index=row_labels, columns=token_labels)
+
+            heatmap_fig = go.Figure(data=go.Heatmap(
+                z=sig_df_plot.values,
+                x=sig_df_plot.columns.tolist(),
+                y=sig_df_plot.index.tolist(),
+                colorscale=[
+                    [0.0,  "#ef4444"],   # -1 → red (short)
+                    [0.5,  "#f1f5f9"],   # 0  → light grey (neutral)
+                    [1.0,  "#22c55e"],   # +1 → green (long)
+                ],
+                zmin=-1, zmax=1,
+                text=[[f"{v:+.2f}" for v in row] for row in sig_df_plot.values],
+                texttemplate="%{text}",
+                textfont=dict(size=11),
+                hoverongaps=False,
+            ))
+            heatmap_fig.update_layout(
+                height=max(300, 50 * len(row_labels) + 80),
+                xaxis_title="Token",
+                yaxis_title="Strategy  (★ = active)",
+                margin=dict(l=180, r=20, t=20, b=40),
+                template="plotly_white",
+            )
+            st.plotly_chart(heatmap_fig, use_container_width=True)
+
+            # Active-only detail table
+            active_detail = {
+                name.rstrip(" ★"): latest_signals[name.rstrip(" ★")]
+                for name in row_labels
+                if "★" in name and name.rstrip(" ★") in latest_signals
+            }
+            if active_detail:
+                st.markdown("**Active strategy signals — top positions:**")
+                detail_cols = st.columns(len(active_detail))
+                for i, (name, sigs) in enumerate(active_detail.items()):
+                    with detail_cols[i]:
+                        st.markdown(f"**{name}**")
+                        sig_s = pd.Series({k.replace("USDT",""): v for k, v in sigs.items()})
+                        longs  = sig_s[sig_s > 0.01].nlargest(5)
+                        shorts = sig_s[sig_s < -0.01].nsmallest(5)
+                        if not longs.empty:
+                            st.markdown("🟢 **Long signals:**")
+                            for tok, val in longs.items():
+                                st.markdown(f"&nbsp;&nbsp;{tok}: `{val:+.3f}`", unsafe_allow_html=True)
+                        if not shorts.empty:
+                            st.markdown("🔴 **Short signals:**")
+                            for tok, val in shorts.items():
+                                st.markdown(f"&nbsp;&nbsp;{tok}: `{val:+.3f}`", unsafe_allow_html=True)
+                        if longs.empty and shorts.empty:
+                            st.caption("No signals above threshold")
+
     # ── Trade History ─────────────────────────────────────────────────────────
     trade_log = live.get("trade_log", [])
     st.markdown("---")
@@ -634,18 +736,16 @@ elif section == "🟢 Live Trading (Testnet)":
     if trade_log:
         trades_df = pd.DataFrame(trade_log)
 
-        # Format columns
         trades_df["time"] = pd.to_datetime(trades_df["time"]).dt.strftime("%Y-%m-%d %H:%M UTC")
         if "price" in trades_df.columns:
             trades_df["price"] = trades_df["price"].apply(lambda x: f"${float(x):,.2f}")
         if "pnl" in trades_df.columns:
             trades_df["pnl"] = trades_df["pnl"].apply(
-                lambda x: f"{float(x):+.2f}" if pd.notna(x) and str(x) != "" else "—"
+                lambda x: f"{float(x):+.2f}" if pd.notna(x) and str(x) not in ("", "None") else "—"
             )
         if "qty" in trades_df.columns:
             trades_df["qty"] = trades_df["qty"].apply(lambda x: f"{float(x):.6f}")
 
-        # Pick and rename columns
         col_map = {
             "time":     "Time (UTC)",
             "symbol":   "Symbol",
@@ -656,12 +756,37 @@ elif section == "🟢 Live Trading (Testnet)":
             "strategy": "Strategy",
             "reason":   "Reason",
         }
-        available = [c for c in col_map if c in trades_df.columns]
-        trades_df = trades_df[available].rename(columns=col_map)
+        available  = [c for c in col_map if c in trades_df.columns]
+        trades_df  = trades_df[available].rename(columns=col_map).iloc[::-1].reset_index(drop=True)
 
-        # Most recent first
-        st.dataframe(trades_df.iloc[::-1].reset_index(drop=True), use_container_width=True)
-        st.caption(f"Total trades executed: {len(trade_log)}")
+        def _color_side(val):
+            if val == "BUY":
+                return "color: #22c55e; font-weight: bold"
+            if val == "SELL":
+                return "color: #ef4444; font-weight: bold"
+            return ""
+
+        def _color_pnl(val):
+            try:
+                v = float(str(val).replace(",", ""))
+                return "color: #22c55e" if v > 0 else ("color: #ef4444" if v < 0 else "")
+            except Exception:
+                return ""
+
+        style = trades_df.style
+        if "Side" in trades_df.columns:
+            style = style.applymap(_color_side, subset=["Side"])
+        if "Realised P&L" in trades_df.columns:
+            style = style.applymap(_color_pnl, subset=["Realised P&L"])
+
+        st.dataframe(style, use_container_width=True)
+
+        n_buys  = (trades_df.get("Side", pd.Series()) == "BUY").sum()
+        n_sells = (trades_df.get("Side", pd.Series()) == "SELL").sum()
+        st.caption(
+            f"Total: {len(trade_log)} trades  |  "
+            f"🟢 BUY: {n_buys}  |  🔴 SELL: {n_sells}"
+        )
     else:
         st.info("No trades executed yet — orders will appear here after the first rebalance.")
 
