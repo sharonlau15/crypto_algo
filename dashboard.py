@@ -1075,7 +1075,12 @@ elif section == "📈 Strategy Monitor":
                     st.caption("No positions (holding cash)")
 
             with col_t:
-                st.markdown("**Trade history** (most recent first)")
+                # Compute total realized P&L for the header
+                total_rpnl = sum(
+                    float(t.get("pnl", 0)) for t in trade_hist if float(t.get("pnl", 0)) != 0
+                )
+                pnl_label  = f"  |  Realized P&L: ${total_rpnl:+,.2f}" if total_rpnl != 0 else ""
+                st.markdown(f"**Trade history** (most recent first){pnl_label}")
                 if trade_hist:
                     th_df = pd.DataFrame(trade_hist)
                     th_df["time"]        = pd.to_datetime(th_df["time"]).dt.strftime("%m-%d %H:%M")
@@ -1084,6 +1089,10 @@ elif section == "📈 Strategy Monitor":
                     th_df["weight_from"] = th_df["weight_from"].apply(lambda x: f"{x:.0f}%")
                     th_df["weight_to"]   = th_df["weight_to"].apply(lambda x: f"{x:.0f}%")
                     th_df["symbol"]      = th_df["symbol"].str.replace("USDT", "")
+                    if "pnl" in th_df.columns:
+                        th_df["pnl"] = th_df["pnl"].apply(
+                            lambda x: f"${float(x):+,.2f}" if float(x) != 0 else "—"
+                        )
                     th_df = th_df.rename(columns={
                         "time":        "Time",
                         "symbol":      "Token",
@@ -1092,10 +1101,30 @@ elif section == "📈 Strategy Monitor":
                         "weight_to":   "To",
                         "price":       "Price",
                         "hypo_value":  "Value",
+                        "pnl":         "Realized P&L",
                     })
-                    col_order = ["Time", "Token", "Side", "From", "To", "Price", "Value"]
+                    col_order = ["Time", "Token", "Side", "From", "To", "Price", "Value", "Realized P&L"]
                     th_df = th_df[[c for c in col_order if c in th_df.columns]]
-                    st.dataframe(th_df.iloc[::-1].reset_index(drop=True), use_container_width=True)
+
+                    def _color_pnl_hypo(val):
+                        try:
+                            v = float(str(val).replace("$", "").replace(",", ""))
+                            if v > 0: return "color: #22c55e"
+                            if v < 0: return "color: #ef4444"
+                        except Exception:
+                            pass
+                        return ""
+
+                    style = th_df.iloc[::-1].reset_index(drop=True).style
+                    if "Side" in th_df.columns:
+                        style = style.applymap(
+                            lambda v: "color: #22c55e; font-weight:bold" if v == "BUY"
+                                      else ("color: #ef4444; font-weight:bold" if v == "SELL" else ""),
+                            subset=["Side"],
+                        )
+                    if "Realized P&L" in th_df.columns:
+                        style = style.applymap(_color_pnl_hypo, subset=["Realized P&L"])
+                    st.dataframe(style, use_container_width=True)
                 else:
                     st.caption("No trades yet — appears after second signal cycle.")
 

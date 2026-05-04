@@ -339,12 +339,14 @@ def execute_rebalance(target_weights: pd.Series, state: dict, nav: float,
                     state["positions"][sym] = max(new_qty, 0)
                     state["cash_usdt"]     += qty * price
 
+                trade_pnl = sell_pnl if side == "SELL" else 0.0
                 state.setdefault("trade_log", []).append({
                     "time":      str(datetime.now(timezone.utc)),
                     "symbol":    sym,
                     "side":      side,
                     "qty":       qty,
                     "price":     price,
+                    "pnl":       round(trade_pnl, 4),
                     "reason":    "signal_rebalance",
                     "strategy":  ", ".join(state.get("active_strategies", [])),
                     "order_id":  order.get("orderId"),
@@ -443,26 +445,31 @@ def update_hypotheticals(signals_dict: dict, current_prices: dict, state: dict):
             ts_now = str(pd.Timestamp.now(tz="UTC"))
 
             if name not in hypo:
-                # Log initial positions as entry trades
+                # Log initial positions as entry trades (P&L = 0 at entry)
+                initial_entry_prices = {}
                 initial_trades = []
                 for sym in UNIVERSE:
                     w = float(new_weights.get(sym, 0))
+                    p = float(current_prices.get(sym, 0))
                     if abs(w) >= 0.01:
+                        initial_entry_prices[sym] = p
                         initial_trades.append({
                             "time":        ts_now,
                             "symbol":      sym,
                             "side":        "BUY" if w > 0 else "SELL",
                             "weight_from": 0.0,
                             "weight_to":   round(w * 100, 1),
-                            "price":       float(current_prices.get(sym, 0)),
+                            "price":       p,
                             "hypo_value":  round(PORTFOLIO_USDT * abs(w), 2),
+                            "pnl":         0.0,
                         })
                 hypo[name] = {
-                    "nav":          PORTFOLIO_USDT,
-                    "weights":      new_weights.to_dict(),
-                    "last_prices":  {s: current_prices.get(s, 0) for s in UNIVERSE},
-                    "nav_history":  [{"date": ts_now, "nav": PORTFOLIO_USDT}],
+                    "nav":           PORTFOLIO_USDT,
+                    "weights":       new_weights.to_dict(),
+                    "last_prices":   {s: current_prices.get(s, 0) for s in UNIVERSE},
+                    "nav_history":   [{"date": ts_now, "nav": PORTFOLIO_USDT}],
                     "trade_history": initial_trades,
+                    "entry_prices":  initial_entry_prices,
                 }
                 logger.info(
                     f"  📊 [HYPO INIT] {name} — starting at ${PORTFOLIO_USDT:,.0f} "
@@ -506,14 +513,34 @@ def update_hypotheticals(signals_dict: dict, current_prices: dict, state: dict):
             ret_pct = (new_nav - PORTFOLIO_USDT) / PORTFOLIO_USDT * 100
 
             # Log hypothetical trades — any weight shift > 1% counts as a trade
+            entry_prices = hypo[name].setdefault("entry_prices", {})
             for sym in UNIVERSE:
-                prev_w = float(prev_weights.get(sym, 0))
-                new_w  = float(new_weights.get(sym, 0))
+                prev_w  = float(prev_weights.get(sym, 0))
+                new_w   = float(new_weights.get(sym, 0))
                 delta_w = new_w - prev_w
                 if abs(delta_w) < 0.01:
                     continue
                 price      = float(current_prices.get(sym, 0))
                 hypo_value = round(prev_nav * abs(delta_w), 2)
+
+                # Realized P&L: only when reducing / closing a position
+                ep  = entry_prices.get(sym, price)
+                if delta_w < 0 and abs(prev_w) > 0 and price > 0:
+                    sold_usdt = prev_nav * min(abs(delta_w), abs(prev_w))
+                    sold_qty  = sold_usdt / price
+                    trade_pnl = round((price - ep) * sold_qty, 4)
+                else:
+                    trade_pnl = 0.0
+
+                # Update entry price: weighted average on additions, clear on full exit
+                if delta_w > 0 and price > 0:
+                    prev_qty = prev_nav * abs(prev_w) / price if abs(prev_w) > 0 else 0
+                    add_qty  = prev_nav * abs(delta_w) / price
+                    total    = prev_qty + add_qty
+                    entry_prices[sym] = (ep * prev_qty + price * add_qty) / total if total > 0 else price
+                elif abs(new_w) < 0.001:
+                    entry_prices.pop(sym, None)
+
                 trade_history.append({
                     "time":        ts_now,
                     "symbol":      sym,
@@ -522,6 +549,7 @@ def update_hypotheticals(signals_dict: dict, current_prices: dict, state: dict):
                     "weight_to":   round(new_w * 100, 1),
                     "price":       price,
                     "hypo_value":  hypo_value,
+                    "pnl":         trade_pnl,
                 })
 
             hypo[name]["nav"]         = new_nav
