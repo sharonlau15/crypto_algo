@@ -73,9 +73,27 @@ def load_state() -> dict:
     }
 
 
+_NAV_HISTORY_CAP    = 2880   # keep last 2 days at 1-min cadence
+_TRADE_HISTORY_CAP  = 500    # per-strategy hypothetical trade log
+
+
 def save_state(state: dict):
-    with open(STATE_FILE, "w") as f:
+    # Cap unbounded lists to prevent the state file growing indefinitely
+    if len(state.get("nav_history", [])) > _NAV_HISTORY_CAP:
+        state["nav_history"] = state["nav_history"][-_NAV_HISTORY_CAP:]
+
+    for hyp in state.get("hypothetical", {}).values():
+        if len(hyp.get("nav_history", [])) > _NAV_HISTORY_CAP:
+            hyp["nav_history"] = hyp["nav_history"][-_NAV_HISTORY_CAP:]
+        if len(hyp.get("trade_history", [])) > _TRADE_HISTORY_CAP:
+            hyp["trade_history"] = hyp["trade_history"][-_TRADE_HISTORY_CAP:]
+
+    # Atomic write: write to .tmp then rename so a mid-write crash never
+    # produces a corrupted file (os.replace is atomic on POSIX).
+    tmp = STATE_FILE.with_suffix(".tmp")
+    with open(tmp, "w") as f:
         json.dump(state, f, indent=2, default=str)
+    tmp.replace(STATE_FILE)
 
 
 # ── Portfolio NAV ──────────────────────────────────────────────────────────────

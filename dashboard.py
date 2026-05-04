@@ -82,22 +82,31 @@ def load_backtest_data():
     return data
 
 
-@st.cache_data(ttl=30)  # auto-refresh every 30 s while dashboard is open
-def load_live_data():
+def _load_state_file():
+    """Read live_state.json, recovering gracefully from mid-write corruption."""
     state_file = RESULT_DIR / "live_state.json"
     if not state_file.exists():
         return None
-    with open(state_file) as f:
-        return json.load(f)
+    try:
+        with open(state_file) as f:
+            content = f.read()
+        # json.load raises JSONDecodeError("Extra data") when two JSON objects
+        # are concatenated (atomic-write failure). raw_decode recovers the first.
+        return json.JSONDecoder().raw_decode(content)[0]
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=30)  # auto-refresh every 30 s while dashboard is open
+def load_live_data():
+    return _load_state_file()
 
 
 @st.cache_data(ttl=30)
 def load_strategy_monitor_data():
-    state_file = RESULT_DIR / "live_state.json"
-    if not state_file.exists():
+    state = _load_state_file()
+    if state is None:
         return None
-    with open(state_file) as f:
-        state = json.load(f)
     return {
         "hypothetical":      state.get("hypothetical", {}),
         "active_strategies": state.get("active_strategies", []),
