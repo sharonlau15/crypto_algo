@@ -34,14 +34,14 @@ if not _env_loaded:
     warnings.warn(
         f"No Binance.env or .env found in {ROOT_DIR}. "
         "Create one with BINANCE_API_KEY / BINANCE_API_SECRET / "
-        "BINANCE_TESTNET_API_KEY / BINANCE_TESTNET_API_SECRET.",
+        "BINANCE_DEMO_API_KEY / BINANCE_DEMO_API_SECRET.",
         stacklevel=2,
     )
 
-API_KEY            = os.getenv("BINANCE_API_KEY")
-API_SECRET         = os.getenv("BINANCE_API_SECRET")
-TESTNET_API_KEY    = os.getenv("BINANCE_TESTNET_API_KEY", API_KEY)
-TESTNET_API_SECRET = os.getenv("BINANCE_TESTNET_API_SECRET", API_SECRET)
+API_KEY         = os.getenv("BINANCE_API_KEY")
+API_SECRET      = os.getenv("BINANCE_API_SECRET")
+DEMO_API_KEY    = os.getenv("BINANCE_DEMO_API_KEY", API_KEY)
+DEMO_API_SECRET = os.getenv("BINANCE_DEMO_API_SECRET", API_SECRET)
 
 # ── Universe ───────────────────────────────────────────────────────────────────
 # 12 tokens — liquid, diverse, covers large/mid/alt cap crypto
@@ -87,10 +87,10 @@ TRAILING_STOP_PCT   = 0.05          # 5% trailing stop (0 = disabled)
 USE_TRAILING_STOP   = True          # Whether to use trailing stops
 
 # ── Execution ──────────────────────────────────────────────────────────────────
-PAPER_TRADING       = True          # True = testnet, False = live (NEVER set False in dev)
+PAPER_TRADING       = True          # True = demo trading, False = live (NEVER set False in dev)
 ORDER_TYPE          = "MARKET"      # MARKET | LIMIT
 SLIPPAGE_BP         = 5             # Assumed slippage in backtest
-PORTFOLIO_USDT      = 10_000        # Starting capital in USDT (testnet)
+PORTFOLIO_USDT      = 10_000        # Starting capital in USDT (demo trading)
 MIN_ORDER_USDT      = 11            # Binance min notional + buffer
 
 # ── Real-time live trading ─────────────────────────────────────────────────────

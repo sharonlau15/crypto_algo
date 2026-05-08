@@ -44,7 +44,7 @@ st.markdown("""
         display: inline-block; background: #22c55e; color: white;
         padding: 2px 10px; border-radius: 12px; font-size: 13px; font-weight: bold;
     }
-    .testnet-badge {
+    .demo-badge {
         display: inline-block; background: #f59e0b; color: white;
         padding: 2px 10px; border-radius: 12px; font-size: 13px; font-weight: bold;
     }
@@ -121,7 +121,7 @@ def fetch_binance_live_balances() -> dict | None:
 
     Token quantities come from the actual account balances (exact).
     Prices come from the live ticker (real-time, not cached OHLCV).
-    We deliberately ignore the Binance USDT balance — testnet accounts
+    We deliberately ignore the Binance USDT balance — demo accounts
     carry a large fake USDT (~$100k+) that does not reflect our capital.
     Cash is read from state["cash_usdt"] which the engine maintains
     accurately through actual trade fills.
@@ -510,12 +510,12 @@ if section == "📊 Backtest Analysis":
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SECTION 2 — LIVE TRADING (TESTNET)
+# SECTION 2 — LIVE TRADING (DEMO)
 # ══════════════════════════════════════════════════════════════════════════════
 elif section == "🟢 Live Trading (Testnet)":
     st.title("🟢 Live Trading Monitor")
     st.markdown(
-        '<span class="testnet-badge">BINANCE TESTNET — Paper Money</span>',
+        '<span class="demo-badge">BINANCE DEMO TRADING — Virtual Money</span>',
         unsafe_allow_html=True,
     )
     st.markdown("---")

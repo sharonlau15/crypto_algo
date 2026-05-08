@@ -62,8 +62,8 @@ def _bootstrap_from_binance() -> dict:
     Binance so the engine picks up existing positions after a restart/redeploy.
 
     Cash is estimated as PORTFOLIO_USDT - current_position_value.
-    We deliberately ignore the Binance USDT balance: testnet accounts carry a
-    large fake USDT balance (~$100k+) that would wildly inflate NAV.
+    We deliberately ignore the Binance USDT balance: demo accounts carry a
+    large virtual USDT balance (~$100k+) that would wildly inflate NAV.
     """
     client   = get_client(for_trading=True)
     tickers  = {t["symbol"]: float(t["price"])
@@ -295,8 +295,8 @@ def execute_rebalance(target_weights: pd.Series, state: dict, nav: float,
 
     # Leave a small buffer so fees on the last BUY don't push over the limit.
     # NOTE: We intentionally do NOT reconcile against the Binance account balance
-    # because testnet accounts start with large fake USDT (~$100k+), which would
-    # inflate NAV and cause massive over-sizing. Internal tracking is authoritative.
+    # because demo accounts start with large virtual USDT that does not reflect
+    # our $10k starting capital. Internal tracking is authoritative.
     available_cash = state["cash_usdt"] * 0.999
 
     current_values = {
@@ -351,7 +351,7 @@ def execute_rebalance(target_weights: pd.Series, state: dict, nav: float,
                 )
                 cost = qty * price
                 logger.success(
-                    f"📝 [TESTNET ORDER] {side} {qty:.6f} {sym} @ ${price:,.2f} "
+                    f"📝 [DEMO ORDER] {side} {qty:.6f} {sym} @ ${price:,.2f} "
                     f"| Δw={delta_w*100:+.1f}% | {'Cost' if side=='BUY' else 'Proceeds'}=${cost:,.2f} "
                     f"| orderId={order.get('orderId')}"
                 )
@@ -410,7 +410,7 @@ def _signal_to_weights(signal_series: pd.Series, long_short: bool = False) -> pd
     """
     Convert raw signals to position weights with iterative MAX_POSITION_SIZE capping.
 
-    long_short=False  →  long-only (used for live spot trading, spot testnet
+    long_short=False  →  long-only (used for live spot trading, spot demo
                           cannot execute short sells without margin)
     long_short=True   →  50% gross long / 50% gross short, total |w| ≤ 100%
                           (used for hypothetical paper portfolios)
@@ -469,7 +469,7 @@ def compute_target_weights(
         logger.warning("No positive signals from active strategies — holding cash")
         return pd.Series(0.0, index=UNIVERSE), selection
 
-    # long_short=False: spot testnet cannot execute actual short sells
+    # long_short=False: spot demo trading cannot execute actual short sells
     return _signal_to_weights(current_sigs, long_short=False), selection
 
 
@@ -919,9 +919,9 @@ def start_scheduler(strategies: list, seasonality_analyzer, signals_dict: dict,
     scheduler.start()
 
     logger.info("=" * 55)
-    logger.info("🚀  REAL-TIME ALGO TRADING ENGINE — BINANCE TESTNET")
+    logger.info("🚀  REAL-TIME ALGO TRADING ENGINE — BINANCE DEMO TRADING")
     logger.info("=" * 55)
-    logger.info(f"  📊 REAL DATA  |  🎮 TESTNET EXECUTION (paper money)")
+    logger.info(f"  📊 REAL DATA  |  🎮 DEMO TRADING EXECUTION (virtual money)")
     logger.info(f"  Signal recompute : every {SIGNAL_RECOMPUTE_MINS} min  → places orders only if signal shifts")
     logger.info(f"  Stop/TP monitor  : every {PRICE_MONITOR_SECS}s   → exits positions immediately on breach")
     logger.info(f"  Rebalance trigger: total |Δweight| > {REBALANCE_THRESHOLD:.0%}")

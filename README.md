@@ -217,19 +217,20 @@ Create a file called `Binance.env` in the project root (`crypto_algo/Binance.env
 ```env
 BINANCE_API_KEY=your_real_api_key_here
 BINANCE_API_SECRET=your_real_api_secret_here
-BINANCE_TESTNET_API_KEY=your_testnet_key_here
-BINANCE_TESTNET_API_SECRET=your_testnet_secret_here
+BINANCE_DEMO_API_KEY=your_demo_trading_key_here
+BINANCE_DEMO_API_SECRET=your_demo_trading_secret_here
 ```
 
 **Why two sets of keys?**
 | Client | Purpose | Key source |
 |--------|---------|-----------|
-| Real Binance | Market data (OHLCV, tickers, funding rates) — read-only | binance.com |
-| Testnet | Order placement, account queries — fake money | testnet.binance.vision |
+| Real Binance | Market data (OHLCV, tickers, funding rates) — read-only | binance.com API management |
+| Demo Trading | Order placement, account queries — virtual money, real prices | binance.com Paper Trading section |
 
-- Get testnet keys at: https://testnet.binance.vision/ (sign in with GitHub)
+- Get demo trading keys from your Binance account → Paper Trading → API Management
+- Demo trading uses the real Binance API endpoint (`api.binance.com`) — unlike testnet, prices are live
 - The real API key only needs read permissions — no trading permissions required
-- The system **always** uses testnet for orders when `PAPER_TRADING = True` (the default)
+- The system **always** uses demo trading for orders when `PAPER_TRADING = True` (the default)
 
 **How the dual client works (`config/client.py`):**
 ```python
