@@ -113,8 +113,51 @@ def load_strategy_monitor_data():
     }
 
 
+@st.cache_data(ttl=30)
+def fetch_binance_live_balances() -> dict | None:
+    """
+    Pull real token quantities and live prices directly from Binance.
+    Returns None if API keys are unavailable or the request fails.
+
+    Token quantities come from the actual account balances (exact).
+    Prices come from the live ticker (real-time, not cached OHLCV).
+    We deliberately ignore the Binance USDT balance — testnet accounts
+    carry a large fake USDT (~$100k+) that does not reflect our capital.
+    Cash is read from state["cash_usdt"] which the engine maintains
+    accurately through actual trade fills.
+    """
+    try:
+        from config.client import get_client
+        client = get_client(for_trading=True)
+
+        tickers = {t["symbol"]: float(t["price"])
+                   for t in client.get_all_tickers()
+                   if t["symbol"] in UNIVERSE}
+
+        account   = client.get_account()
+        positions = {sym: 0.0 for sym in UNIVERSE}
+        for balance in account.get("balances", []):
+            sym = balance["asset"] + "USDT"
+            if sym in UNIVERSE:
+                qty = float(balance["free"]) + float(balance["locked"])
+                if qty > 0:
+                    positions[sym] = qty
+
+        values         = {sym: positions[sym] * tickers.get(sym, 0.0) for sym in UNIVERSE}
+        position_value = sum(values.values())
+
+        return {
+            "positions":      positions,
+            "prices":         tickers,
+            "values":         values,
+            "position_value": position_value,
+        }
+    except Exception:
+        return None
+
+
 def load_last_close_prices() -> dict:
-    """Read the most recent close price for each symbol from cached parquet files."""
+    """Fallback: read the most recent close price from cached parquet files."""
     prices = {}
     cache_dir = Path("data/cache")
     if not cache_dir.exists():
@@ -528,41 +571,46 @@ elif section == "🟢 Live Trading (Testnet)":
         st.info("No active strategies recorded yet — appears after the first signal cycle.")
 
     # ── Parse state ───────────────────────────────────────────────────────────
-    positions        = live.get("positions", {})
     cash_usdt        = live.get("cash_usdt", STARTING_CAPITAL)
     nav_history      = live.get("nav_history", [])
     position_entries = live.get("position_entries", {})
+    start_nav        = live.get("initial_nav", STARTING_CAPITAL)
+
+    # ── Live Binance balances (real quantities + real-time prices) ────────────
+    binance = fetch_binance_live_balances()
+    if binance:
+        positions      = binance["positions"]
+        last_prices    = binance["prices"]
+        position_value = binance["position_value"]
+        # Live NAV = engine-tracked cash + positions at current market price
+        current_nav    = cash_usdt + position_value
+        nav_source     = "Binance live"
+    else:
+        # Fallback to state file + cached OHLCV if Binance is unreachable
+        positions      = live.get("positions", {})
+        last_prices    = load_last_close_prices()
+        position_value = sum(positions.get(sym, 0) * last_prices.get(sym, 0) for sym in UNIVERSE)
+        if nav_history:
+            nav_df_tmp  = pd.DataFrame(nav_history)
+            current_nav = pd.to_numeric(nav_df_tmp["nav"]).iloc[-1]
+        else:
+            current_nav = cash_usdt
+        nav_source = "state file (Binance unavailable)"
 
     open_positions = {sym: qty for sym, qty in positions.items() if qty != 0}
 
-    # ── NAV summary ───────────────────────────────────────────────────────────
-    # Use initial_nav stored in state (set when the engine first boots) so the
-    # P&L baseline stays anchored to $10k even after nav_history is capped.
-    start_nav = live.get("initial_nav", STARTING_CAPITAL)
+    # ── NAV chart data ────────────────────────────────────────────────────────
+    nav_df = None
     if nav_history:
         nav_df = pd.DataFrame(nav_history)
         nav_df["nav"] = pd.to_numeric(nav_df["nav"])
-        current_nav = nav_df["nav"].iloc[-1]
-    else:
-        current_nav = cash_usdt
-        nav_df      = None
 
     total_pnl    = current_nav - start_nav
     total_return = total_pnl / start_nav if start_nav else 0
 
-    # Pull last close prices from cache for unrealised P&L
-    last_prices = load_last_close_prices()
-
-    # Compute position market values
-    position_value = sum(
-        qty * last_prices.get(sym, 0)
-        for sym, qty in open_positions.items()
-    )
-    live_nav = cash_usdt + position_value  # best estimate from cached prices
-
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Current NAV", f"${current_nav:,.2f}", help="From last rebalance log")
-    col2.metric("Cash (USDT)", f"${cash_usdt:,.2f}")
+    col1.metric("Live NAV", f"${current_nav:,.2f}", help=f"Source: {nav_source}")
+    col2.metric("Cash (USDT)", f"${cash_usdt:,.2f}", help="Tracked by engine through actual fills")
     col3.metric("Open Positions", len(open_positions))
     col4.metric(
         "Total P&L",
@@ -609,6 +657,7 @@ elif section == "🟢 Live Trading (Testnet)":
                 entry       = position_entries.get(sym, {})
                 entry_price = entry.get("entry_price")
                 last_price  = last_prices.get(sym)
+                mkt_value   = binance["values"].get(sym) if binance else (qty * last_price if last_price else None)
 
                 if entry_price and last_price:
                     unreal_pct = (last_price - entry_price) / entry_price * 100
@@ -618,22 +667,27 @@ elif section == "🟢 Live Trading (Testnet)":
                     unreal_usd = None
 
                 rows.append({
-                    "Symbol":        sym,
-                    "Qty":           round(qty, 6),
-                    "Entry Price":   f"${entry_price:,.2f}" if entry_price else "—",
-                    "Last Price":    f"${last_price:,.2f}" if last_price else "—",
+                    "Symbol":         sym,
+                    "Qty":            round(qty, 6),
+                    "Entry Price":    f"${entry_price:,.2f}" if entry_price else "—",
+                    "Live Price":     f"${last_price:,.2f}" if last_price else "—",
+                    "Mkt Value":      f"${mkt_value:,.2f}" if mkt_value else "—",
                     "Unrealised P&L": f"{unreal_pct:+.2f}%" if unreal_pct is not None else "—",
-                    "Unrealised $":  f"${unreal_usd:+,.2f}" if unreal_usd is not None else "—",
-                    "Entry Date":    (entry.get("entry_date", "")[:10] if entry.get("entry_date") else "—"),
+                    "Unrealised $":   f"${unreal_usd:+,.2f}" if unreal_usd is not None else "—",
+                    "Entry Date":     (entry.get("entry_date", "")[:10] if entry.get("entry_date") else "—"),
                 })
             st.dataframe(pd.DataFrame(rows).set_index("Symbol"), use_container_width=True)
-            st.caption("Last Price sourced from cached daily OHLCV — not real-time.")
+            price_note = "Live prices from Binance." if binance else "⚠️ Binance unavailable — using cached OHLCV prices."
+            st.caption(price_note)
         else:
             st.info("No open positions after the last rebalance.")
 
     with col_right:
-        st.subheader("All Positions")
-        all_rows = [{"Symbol": sym, "Qty": round(qty, 6)} for sym, qty in positions.items()]
+        st.subheader("All Positions (Binance)")
+        all_rows = []
+        for sym, qty in positions.items():
+            val = (binance["values"].get(sym, 0) if binance else qty * last_prices.get(sym, 0))
+            all_rows.append({"Symbol": sym, "Qty": round(qty, 6), "Value $": round(val, 2)})
         all_df = pd.DataFrame(all_rows).set_index("Symbol")
         st.dataframe(all_df.style.applymap(
             lambda v: "color: #22c55e" if v > 0 else ("color: #ef4444" if v < 0 else ""),
