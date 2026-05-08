@@ -536,14 +536,15 @@ elif section == "🟢 Live Trading (Testnet)":
     open_positions = {sym: qty for sym, qty in positions.items() if qty != 0}
 
     # ── NAV summary ───────────────────────────────────────────────────────────
+    # Use initial_nav stored in state (set when the engine first boots) so the
+    # P&L baseline stays anchored to $10k even after nav_history is capped.
+    start_nav = live.get("initial_nav", STARTING_CAPITAL)
     if nav_history:
         nav_df = pd.DataFrame(nav_history)
         nav_df["nav"] = pd.to_numeric(nav_df["nav"])
         current_nav = nav_df["nav"].iloc[-1]
-        start_nav   = nav_df["nav"].iloc[0]
     else:
         current_nav = cash_usdt
-        start_nav   = STARTING_CAPITAL
         nav_df      = None
 
     total_pnl    = current_nav - start_nav

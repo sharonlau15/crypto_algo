@@ -56,13 +56,75 @@ _last_heartbeat = 0.0   # tracks when the monitor last printed a full portfolio 
 
 
 # ── State management ───────────────────────────────────────────────────────────
+def _bootstrap_from_binance() -> dict:
+    """
+    Called on fresh start (no state file). Reads actual token positions from
+    Binance so the engine picks up existing positions after a restart/redeploy.
+
+    Cash is estimated as PORTFOLIO_USDT - current_position_value.
+    We deliberately ignore the Binance USDT balance: testnet accounts carry a
+    large fake USDT balance (~$100k+) that would wildly inflate NAV.
+    """
+    client   = get_client(for_trading=True)
+    tickers  = {t["symbol"]: float(t["price"])
+                for t in client.get_all_tickers()
+                if t["symbol"] in UNIVERSE}
+
+    account   = client.get_account()
+    positions = {sym: 0.0 for sym in UNIVERSE}
+    for balance in account.get("balances", []):
+        sym = balance["asset"] + "USDT"
+        if sym in UNIVERSE:
+            qty = float(balance["free"]) + float(balance["locked"])
+            if qty > 0:
+                positions[sym] = qty
+
+    position_value = sum(positions[sym] * tickers.get(sym, 0) for sym in UNIVERSE)
+    cash = max(0.0, float(PORTFOLIO_USDT) - position_value)
+
+    has_positions = any(q > 0 for q in positions.values())
+    if has_positions:
+        logger.info(
+            f"Bootstrap: found existing positions worth ${position_value:,.2f}; "
+            f"estimated cash=${cash:,.2f}"
+        )
+    else:
+        logger.info("Bootstrap: no existing positions — starting fresh with full capital")
+
+    return {
+        "positions":        positions,
+        "cash_usdt":        cash,
+        "initial_nav":      PORTFOLIO_USDT,
+        "last_run":         None,
+        "nav_history":      [],
+        "current_weights":  {},
+        "position_entries": {},
+        "trade_log":        [],
+        "hypothetical":     {},
+        "active_strategies": [],
+    }
+
+
 def load_state() -> dict:
     if STATE_FILE.exists():
         with open(STATE_FILE) as f:
-            return json.load(f)
+            state = json.load(f)
+        # Migrate: stamp initial_nav if missing (guards against old state files)
+        if "initial_nav" not in state:
+            state["initial_nav"] = PORTFOLIO_USDT
+        return state
+
+    # No state file — try to read actual Binance positions so we pick up where
+    # we left off after a redeploy / state-file deletion.
+    try:
+        return _bootstrap_from_binance()
+    except Exception as e:
+        logger.warning(f"Binance bootstrap failed ({e}) — starting with clean slate")
+
     return {
         "positions":        {sym: 0.0 for sym in UNIVERSE},
         "cash_usdt":        PORTFOLIO_USDT,
+        "initial_nav":      PORTFOLIO_USDT,
         "last_run":         None,
         "nav_history":      [],
         "current_weights":  {},
@@ -231,25 +293,10 @@ def execute_rebalance(target_weights: pd.Series, state: dict, nav: float,
     """Place orders to shift current weights towards target weights."""
     client = get_client(for_trading=True)
 
-    # Reconcile internal cash tracking with actual testnet USDT balance.
-    # Fees (0.1% per trade) and lot-size rounding cause drift over time.
-    try:
-        account_info = client.get_account()
-        actual_usdt  = float(next(
-            (a["free"] for a in account_info.get("balances", []) if a["asset"] == "USDT"),
-            state["cash_usdt"],
-        ))
-        if abs(actual_usdt - state["cash_usdt"]) > 1.0:
-            logger.info(
-                f"Cash reconciliation: internal=${state['cash_usdt']:,.2f} "
-                f"→ actual testnet=${actual_usdt:,.2f} "
-                f"(drift=${actual_usdt - state['cash_usdt']:+.2f}, likely fees)"
-            )
-            state["cash_usdt"] = actual_usdt
-    except Exception as e:
-        logger.warning(f"Cash reconciliation skipped: {e}")
-
-    # Leave a small buffer so fees on the last BUY don't push over the limit
+    # Leave a small buffer so fees on the last BUY don't push over the limit.
+    # NOTE: We intentionally do NOT reconcile against the Binance account balance
+    # because testnet accounts start with large fake USDT (~$100k+), which would
+    # inflate NAV and cause massive over-sizing. Internal tracking is authoritative.
     available_cash = state["cash_usdt"] * 0.999
 
     current_values = {
