@@ -90,7 +90,8 @@ USE_TRAILING_STOP   = True          # Whether to use trailing stops
 PAPER_TRADING       = True          # True = demo trading, False = live (NEVER set False in dev)
 ORDER_TYPE          = "MARKET"      # MARKET | LIMIT
 SLIPPAGE_BP         = 5             # Assumed slippage in backtest
-PORTFOLIO_USDT      = 10_000        # Starting capital in USDT (demo trading)
+PORTFOLIO_USDT      = 10_000        # Baseline for hypothetical paper portfolios only.
+                                    # Live account capital is read from Binance — not this value.
 MIN_ORDER_USDT      = 11            # Binance min notional + buffer
 
 # ── Real-time live trading ─────────────────────────────────────────────────────

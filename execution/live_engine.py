@@ -58,43 +58,46 @@ _last_heartbeat = 0.0   # tracks when the monitor last printed a full portfolio 
 # ── State management ───────────────────────────────────────────────────────────
 def _bootstrap_from_binance() -> dict:
     """
-    Called on fresh start (no state file). Reads actual token positions from
-    Binance so the engine picks up existing positions after a restart/redeploy.
+    Called on fresh start (no state file). Reads actual Binance account state
+    so the engine picks up existing positions and real cash after a redeploy.
 
-    Cash is estimated as PORTFOLIO_USDT - current_position_value.
-    We deliberately ignore the Binance USDT balance: demo accounts carry a
-    large virtual USDT balance (~$100k+) that would wildly inflate NAV.
+    Both token quantities AND USDT cash come from Binance — no estimation.
+    initial_nav is left unset (None) so reconcile_with_binance() can stamp it
+    from the true opening balance on the first signal cycle.
     """
-    client   = get_client(for_trading=True)
-    tickers  = {t["symbol"]: float(t["price"])
-                for t in client.get_all_tickers()
-                if t["symbol"] in UNIVERSE}
+    client  = get_client(for_trading=True)
+    tickers = {t["symbol"]: float(t["price"])
+               for t in client.get_all_tickers()
+               if t["symbol"] in UNIVERSE}
 
-    account   = client.get_account()
+    account  = client.get_account()
+    balances = account.get("balances", [])
+
     positions = {sym: 0.0 for sym in UNIVERSE}
-    for balance in account.get("balances", []):
-        sym = balance["asset"] + "USDT"
+    for b in balances:
+        sym = b["asset"] + "USDT"
         if sym in UNIVERSE:
-            qty = float(balance["free"]) + float(balance["locked"])
+            qty = float(b["free"]) + float(b["locked"])
             if qty > 0:
                 positions[sym] = qty
 
-    position_value = sum(positions[sym] * tickers.get(sym, 0) for sym in UNIVERSE)
-    cash = max(0.0, float(PORTFOLIO_USDT) - position_value)
+    # Use actual Binance USDT balance — accurate for demo/live accounts
+    cash = float(next(
+        (b["free"] for b in balances if b["asset"] == "USDT"), 0.0
+    ))
 
-    has_positions = any(q > 0 for q in positions.values())
-    if has_positions:
-        logger.info(
-            f"Bootstrap: found existing positions worth ${position_value:,.2f}; "
-            f"estimated cash=${cash:,.2f}"
-        )
-    else:
-        logger.info("Bootstrap: no existing positions — starting fresh with full capital")
+    position_value = sum(positions[sym] * tickers.get(sym, 0) for sym in UNIVERSE)
+    nav = round(cash + position_value, 2)
+
+    logger.info(
+        f"Bootstrap from Binance: cash=${cash:,.2f} | "
+        f"positions=${position_value:,.2f} | NAV=${nav:,.2f}"
+    )
 
     return {
         "positions":        positions,
         "cash_usdt":        cash,
-        "initial_nav":      PORTFOLIO_USDT,
+        "initial_nav":      nav,    # real opening NAV, not a hardcoded constant
         "last_run":         None,
         "nav_history":      [],
         "current_weights":  {},
@@ -109,22 +112,23 @@ def load_state() -> dict:
     if STATE_FILE.exists():
         with open(STATE_FILE) as f:
             state = json.load(f)
-        # Migrate: stamp initial_nav if missing (guards against old state files)
+        # initial_nav may be absent in very old state files; leave it None so
+        # reconcile_with_binance() stamps it from the real Binance balance.
         if "initial_nav" not in state:
-            state["initial_nav"] = PORTFOLIO_USDT
+            state["initial_nav"] = None
         return state
 
-    # No state file — try to read actual Binance positions so we pick up where
-    # we left off after a redeploy / state-file deletion.
+    # No state file — bootstrap from Binance (real positions + real USDT balance)
     try:
         return _bootstrap_from_binance()
     except Exception as e:
-        logger.warning(f"Binance bootstrap failed ({e}) — starting with clean slate")
+        logger.warning(f"Binance bootstrap failed ({e}) — starting with empty state")
 
+    # Last-resort fallback (Binance unreachable at startup)
     return {
         "positions":        {sym: 0.0 for sym in UNIVERSE},
-        "cash_usdt":        PORTFOLIO_USDT,
-        "initial_nav":      PORTFOLIO_USDT,
+        "cash_usdt":        0.0,
+        "initial_nav":      None,   # will be set by reconcile_with_binance on first cycle
         "last_run":         None,
         "nav_history":      [],
         "current_weights":  {},
@@ -133,6 +137,65 @@ def load_state() -> dict:
         "hypothetical":     {},
         "active_strategies": [],
     }
+
+
+def reconcile_with_binance(state: dict, prices: dict) -> dict:
+    """
+    Sync token positions and USDT cash from the actual Binance account.
+
+    What comes from Binance (authoritative):
+      - Token quantities  — exact; we cannot have positions outside the engine
+      - USDT balance      — exact; reflects actual fills, fees, and rounding
+      - initial_nav       — stamped ONCE on the first successful reading;
+                            never overwritten so P&L baseline is always stable
+
+    What stays internal (Binance doesn't store it):
+      - Entry prices      — kept in state["position_entries"]; used for
+                            per-position unrealized P&L in dashboard
+    """
+    try:
+        client   = get_client(for_trading=True)
+        account  = client.get_account()
+        balances = account.get("balances", [])
+
+        # ── Token positions ───────────────────────────────────────────────────
+        new_positions = {sym: 0.0 for sym in UNIVERSE}
+        for b in balances:
+            sym = b["asset"] + "USDT"
+            if sym in UNIVERSE:
+                qty = float(b["free"]) + float(b["locked"])
+                if qty > 0:
+                    new_positions[sym] = qty
+
+        # ── USDT cash ─────────────────────────────────────────────────────────
+        binance_usdt = float(next(
+            (b["free"] for b in balances if b["asset"] == "USDT"),
+            state.get("cash_usdt", 0.0),
+        ))
+
+        drift = binance_usdt - state.get("cash_usdt", binance_usdt)
+        if abs(drift) > 0.10:
+            logger.info(
+                f"Cash reconciliation: internal=${state.get('cash_usdt', 0):,.2f} "
+                f"→ Binance=${binance_usdt:,.2f}  (Δ={drift:+.2f}, fees/rounding)"
+            )
+
+        state["positions"] = new_positions
+        state["cash_usdt"] = binance_usdt
+
+        # ── Stamp initial_nav once from the first real Binance reading ─────────
+        # Once set it never changes, so the P&L baseline is always stable.
+        if state.get("initial_nav") is None:
+            pos_value   = sum(new_positions[sym] * prices.get(sym, 0) for sym in UNIVERSE)
+            live_nav    = round(binance_usdt + pos_value, 2)
+            if live_nav > 0:
+                state["initial_nav"] = live_nav
+                logger.info(f"Initial NAV anchored from Binance: ${live_nav:,.2f}")
+
+    except Exception as e:
+        logger.warning(f"Binance reconciliation skipped ({e}) — using internal state")
+
+    return state
 
 
 _NAV_HISTORY_CAP    = 2880   # keep last 2 days at 1-min cadence
@@ -751,6 +814,11 @@ def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: d
 
     # 4. Fetch current prices (used for hypotheticals + potential rebalance)
     prices = fetch_current_prices()
+
+    # 4b. Reconcile positions and cash from Binance before doing anything with NAV.
+    #     This keeps state["positions"] and state["cash_usdt"] in sync with reality
+    #     and stamps initial_nav from the real account balance if not yet set.
+    state = reconcile_with_binance(state, prices)
 
     # 5. Update hypothetical paper portfolios for all 10 strategies
     logger.info("─" * 55)

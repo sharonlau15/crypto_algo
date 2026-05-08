@@ -19,10 +19,9 @@ import plotly.graph_objects as go
 import plotly.express as px
 import json
 from datetime import datetime, timezone
-from config.settings import UNIVERSE
+from config.settings import UNIVERSE, PORTFOLIO_USDT
 
 RESULT_DIR = Path("results")
-STARTING_CAPITAL = 10_000  # must match settings.PORTFOLIO_USDT
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -571,10 +570,12 @@ elif section == "🟢 Live Trading (Testnet)":
         st.info("No active strategies recorded yet — appears after the first signal cycle.")
 
     # ── Parse state ───────────────────────────────────────────────────────────
-    cash_usdt        = live.get("cash_usdt", STARTING_CAPITAL)
+    cash_usdt        = live.get("cash_usdt", 0.0)
     nav_history      = live.get("nav_history", [])
     position_entries = live.get("position_entries", {})
-    start_nav        = live.get("initial_nav", STARTING_CAPITAL)
+    # initial_nav is set by the engine from the real Binance account balance on
+    # first run — it is never a hardcoded constant, so P&L is always meaningful.
+    start_nav        = live.get("initial_nav")  # None until first reconciliation
 
     # ── Live Binance balances (real quantities + real-time prices) ────────────
     binance = fetch_binance_live_balances()
@@ -605,18 +606,25 @@ elif section == "🟢 Live Trading (Testnet)":
         nav_df = pd.DataFrame(nav_history)
         nav_df["nav"] = pd.to_numeric(nav_df["nav"])
 
-    total_pnl    = current_nav - start_nav
-    total_return = total_pnl / start_nav if start_nav else 0
+    if start_nav and start_nav > 0:
+        total_pnl    = current_nav - start_nav
+        total_return = total_pnl / start_nav
+        pnl_str      = f"{total_return * 100:+.2f}%"
+        pnl_delta    = f"${total_pnl:+,.2f}"
+    else:
+        pnl_str  = "—"
+        pnl_delta = "Awaiting first reconciliation"
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Live NAV", f"${current_nav:,.2f}", help=f"Source: {nav_source}")
-    col2.metric("Cash (USDT)", f"${cash_usdt:,.2f}", help="Tracked by engine through actual fills")
+    col2.metric("Cash (USDT)", f"${cash_usdt:,.2f}", help="Reconciled from Binance each cycle")
     col3.metric("Open Positions", len(open_positions))
     col4.metric(
         "Total P&L",
-        f"{total_return * 100:+.2f}%",
-        delta=f"${total_pnl:+,.2f}",
+        pnl_str,
+        delta=pnl_delta,
         delta_color="normal",
+        help=f"vs opening balance ${start_nav:,.2f}" if start_nav else "Opening balance not yet set",
     )
 
     st.markdown("---")
@@ -631,11 +639,12 @@ elif section == "🟢 Live Trading (Testnet)":
             line=dict(width=2, color="#22c55e"),
             marker=dict(size=6),
         ))
-        fig.add_hline(
-            y=STARTING_CAPITAL, line_dash="dash", line_color="#94a3b8",
-            annotation_text=f"Starting Capital ${STARTING_CAPITAL:,}",
-            annotation_position="bottom right",
-        )
+        if start_nav:
+            fig.add_hline(
+                y=start_nav, line_dash="dash", line_color="#94a3b8",
+                annotation_text=f"Opening Balance ${start_nav:,.2f}",
+                annotation_position="bottom right",
+            )
         fig.update_layout(
             xaxis_title="Date", yaxis_title="NAV (USDT)",
             hovermode="x unified", height=400, template="plotly_white",
@@ -891,8 +900,8 @@ elif section == "📈 Strategy Monitor":
     st.subheader("Performance Summary")
     rows = []
     for name, data in hypo.items():
-        nav_val   = float(data.get("nav", STARTING_CAPITAL))
-        ret_pct   = (nav_val - STARTING_CAPITAL) / STARTING_CAPITAL * 100
+        nav_val   = float(data.get("nav", PORTFOLIO_USDT))
+        ret_pct   = (nav_val - PORTFOLIO_USDT) / PORTFOLIO_USDT * 100
         bt_sharpe = bt_metrics.get(name, {}).get("sharpe")
         is_active = name in active_strats
         rows.append({
@@ -1039,8 +1048,8 @@ elif section == "📈 Strategy Monitor":
         ))
 
     fig.add_hline(
-        y=STARTING_CAPITAL, line_dash="dash", line_color="#94a3b8",
-        annotation_text=f"Starting Capital ${STARTING_CAPITAL:,}",
+        y=PORTFOLIO_USDT, line_dash="dash", line_color="#94a3b8",
+        annotation_text=f"Hypo Baseline ${PORTFOLIO_USDT:,}",
         annotation_position="bottom right",
     )
     if len(fig.data) > 0:
@@ -1064,7 +1073,7 @@ elif section == "📈 Strategy Monitor":
     ret_rows = [
         {
             "Strategy": name,
-            "Return %": round((float(d.get("nav", STARTING_CAPITAL)) - STARTING_CAPITAL) / STARTING_CAPITAL * 100, 2),
+            "Return %": round((float(d.get("nav", PORTFOLIO_USDT)) - PORTFOLIO_USDT) / PORTFOLIO_USDT * 100, 2),
             "Active":   name in active_strats,
         }
         for name, d in hypo.items()
@@ -1098,8 +1107,8 @@ elif section == "📈 Strategy Monitor":
     for name in hypo.keys():
         data       = hypo[name]
         weights    = data.get("weights", {})
-        nav_val    = float(data.get("nav", STARTING_CAPITAL))
-        ret_pct    = (nav_val - STARTING_CAPITAL) / STARTING_CAPITAL * 100
+        nav_val    = float(data.get("nav", PORTFOLIO_USDT))
+        ret_pct    = (nav_val - PORTFOLIO_USDT) / PORTFOLIO_USDT * 100
         marker     = " ★" if name in active_strats else ""
         ret_color  = "#22c55e" if ret_pct >= 0 else "#ef4444"
         trade_hist = data.get("trade_history", [])
