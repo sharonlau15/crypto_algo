@@ -120,14 +120,20 @@ Market Data → 10 Strategies → Signals → Selector (Regime + Live P&L) → O
 ```
 crypto_algo/
 ├── main.py                        ← Master entrypoint (argparse)
-├── dashboard.py                   ← Streamlit dashboard
-├── debug_futures.py               ← Futures API connectivity diagnostic
-├── requirements.txt
 ├── Binance.env                    ← API keys (gitignored)
+│
+├── dashboard/
+│   ├── dashboard.py               ← Streamlit dashboard
+│   └── run_dashboard.sh           ← Dashboard launcher script
+│
+├── diagnostics/
+│   ├── debug_futures.py           ← Futures API connectivity diagnostic
+│   └── Binance test.py            ← Manual API test script
 │
 ├── config/
 │   ├── settings.py                ← ALL tuneable parameters
-│   └── client.py                  ← Dual client: real data / demo futures orders
+│   ├── client.py                  ← Dual client: real data / demo futures orders
+│   └── requirements.txt           ← Python dependencies
 │
 ├── data/
 │   ├── ingestion.py               ← OHLCV, funding rates, Fear & Greed fetch
@@ -187,7 +193,7 @@ source venv/bin/activate          # macOS/Linux
 # venv\Scripts\activate           # Windows
 
 # 3. Install all dependencies
-pip install -r requirements.txt
+pip install -r config/requirements.txt
 ```
 
 ### Server Setup (Ubuntu/Debian)
@@ -203,7 +209,7 @@ cd crypto_algo
 # Create venv and install
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r config/requirements.txt
 
 # Create API key file (see Section 5)
 nano Binance.env
