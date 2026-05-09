@@ -293,11 +293,20 @@ class MLSignalStrategy(BaseStrategy):
 
     def generate_signals(self, close, returns, **kwargs):
         """
-        Simplified ML signal: train a single model on recent history,
-        apply to entire period. Much faster than walk-forward.
+        Walk-forward LightGBM with periodic retraining every RETRAIN_FREQ days.
+
+        For each prediction at index i:
+          - Model is trained on returns[i - train_window : i]  (strictly past)
+          - Prediction is made for returns[i]                  (current day)
+          - Signal is applied at i+1 by base.py shift(1)       (T+1 execution)
+
+        Retraining every 30 days (not every day) keeps runtime manageable
+        while ensuring no future data ever enters the training set.
         """
-        p   = self.params
-        tw  = p["train_window"]
+        RETRAIN_FREQ = 30   # retrain model every N days
+
+        p       = self.params
+        tw      = p["train_window"]
         signals = pd.DataFrame(np.nan, index=close.index, columns=close.columns)
 
         for sym in close.columns:
@@ -306,41 +315,50 @@ class MLSignalStrategy(BaseStrategy):
                 continue
 
             feats  = self._build_features(ret)
-            target = (ret.shift(-1) > 0).astype(int)  # predict next day sign
+            # Target: sign of *next* day's return (what we are trying to predict)
+            target = (ret.shift(-1) > 0).astype(int)
 
-            # Use last tw periods for training (no look-ahead)
-            train_start = max(0, len(ret) - tw - 1)
-            train_end   = len(ret) - 1
+            col_idx = close.columns.get_loc(sym)
+            model   = None
 
-            X_train = feats.iloc[train_start:train_end].dropna()
-            y_train = target.iloc[train_start:train_end].loc[X_train.index]
+            for i in range(tw, len(ret)):
+                # Retrain on first prediction and then every RETRAIN_FREQ steps
+                if model is None or (i - tw) % RETRAIN_FREQ == 0:
+                    X_train = feats.iloc[i - tw : i].dropna()
+                    # target at row j = sign of ret[j+1]; exclude last row of
+                    # window (ret[i-1]) because its label is ret[i] which is
+                    # the value we are about to predict — that would be leakage.
+                    y_train = target.iloc[i - tw : i - 1].loc[X_train.iloc[:-1].index]
+                    X_train = X_train.iloc[:-1]   # align with y_train
 
-            if len(X_train) < 50:
-                continue  # Not enough data
-
-            try:
-                model = lgb.LGBMClassifier(
-                    n_estimators  = max(30, p["n_estimators"] // 8),  # Very reduced
-                    max_depth     = 3,
-                    learning_rate = p["learning_rate"],
-                    verbosity     = -1,
-                    n_jobs        = 1,  # Single threaded for speed
-                )
-                model.fit(X_train, y_train)
-
-                # Predict on entire feature matrix
-                for i in range(tw, len(ret)):
-                    X_test = feats.iloc[[i]].dropna()
-                    if X_test.empty:
+                    if len(X_train) < 50 or y_train.nunique() < 2:
+                        model = None
                         continue
                     try:
-                        prob = model.predict_proba(X_test)[0][1]  # P(up)
-                        signals.iloc[i, close.columns.get_loc(sym)] = prob * 2 - 1
-                    except:
-                        pass
-            except Exception as e:
-                logger.debug(f"MLSignal {sym}: {e}")
-                continue
+                        model = lgb.LGBMClassifier(
+                            n_estimators  = max(30, p["n_estimators"] // 8),
+                            max_depth     = 3,
+                            learning_rate = p["learning_rate"],
+                            verbosity     = -1,
+                            n_jobs        = 1,
+                        )
+                        model.fit(X_train, y_train)
+                    except Exception as e:
+                        logger.debug(f"MLSignal {sym} retrain@{i}: {e}")
+                        model = None
+                        continue
+
+                if model is None:
+                    continue
+
+                X_pred = feats.iloc[[i]].dropna()
+                if X_pred.empty:
+                    continue
+                try:
+                    prob = model.predict_proba(X_pred)[0][1]   # P(up)
+                    signals.iloc[i, col_idx] = prob * 2 - 1    # rescale to [-1, +1]
+                except Exception:
+                    pass
 
         return signals
 

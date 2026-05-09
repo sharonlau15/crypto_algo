@@ -97,8 +97,15 @@ def save_results(
     """Persist all results as CSV and JSON for dashboard consumption."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Strategy metrics as JSON
-    metrics = {name: r.metrics for name, r in backtest_results.items()}
+    # Strategy metrics as JSON — full period + in-sample + out-of-sample split
+    metrics = {
+        name: {
+            "full":         r.metrics,
+            "in_sample":    r.in_sample_metrics,
+            "out_of_sample": r.oos_metrics,
+        }
+        for name, r in backtest_results.items()
+    }
     with open(output_dir / "strategy_metrics.json", "w") as f:
         json.dump(metrics, f, indent=2, default=str)
 

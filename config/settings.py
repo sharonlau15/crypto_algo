@@ -67,6 +67,9 @@ MIN_DAILY_VOLUME_USDT = 10_000_000
 KLINE_INTERVAL      = "1d"          # Daily bars for portfolio rebalancing
 KLINE_INTERVAL_1H   = "1h"          # 1h bars for intraday signals
 BACKTEST_START      = "2023-01-01"  # Post-LUNA/FTX: cleaner market structure
+BACKTEST_TEST_START = "2025-01-01"  # Out-of-sample test period begins here
+                                    # In-sample:  BACKTEST_START → BACKTEST_TEST_START
+                                    # Out-of-sample: BACKTEST_TEST_START → today
 BACKTEST_END        = None          # None = today
 CACHE_EXPIRY_HOURS  = 6             # Re-fetch if cached data is older than this
 

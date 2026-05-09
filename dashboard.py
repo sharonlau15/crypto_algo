@@ -65,7 +65,20 @@ def load_backtest_data():
     }
     if (f := RESULT_DIR / "strategy_metrics.json").exists():
         with open(f) as fh:
-            data["metrics"] = json.load(fh)
+            raw = json.load(fh)
+        # Normalise: new format nests under "full"/"in_sample"/"out_of_sample".
+        # Old format is flat ({"sharpe": ...}). Support both.
+        normalised = {}
+        for name, val in raw.items():
+            if "full" in val:
+                normalised[name] = val          # new nested format
+            else:
+                normalised[name] = {            # old flat format — wrap it
+                    "full": val,
+                    "in_sample": val,
+                    "out_of_sample": {"error": "not available — re-run backtest"},
+                }
+        data["metrics"] = normalised
     if (f := RESULT_DIR / "portfolio_returns.csv").exists():
         data["returns"] = pd.read_csv(f, index_col=0, parse_dates=True)
     if (f := RESULT_DIR / "cumulative_returns.csv").exists():
@@ -340,7 +353,44 @@ if section == "📊 Backtest Analysis":
         st.error("No backtest results found. Run: `python main.py --mode backtest`")
         st.stop()
 
-    metrics = bt_data["metrics"]
+    raw_metrics = bt_data["metrics"]
+    # Flatten to "full" period metrics so all existing display code stays unchanged
+    metrics     = {name: v["full"] for name, v in raw_metrics.items()}
+    is_metrics  = {name: v.get("in_sample", {}) for name, v in raw_metrics.items()}
+    oos_metrics = {name: v.get("out_of_sample", {}) for name, v in raw_metrics.items()}
+
+    # ── Train / Test split banner ──────────────────────────────────────────────
+    from config.settings import BACKTEST_START, BACKTEST_TEST_START
+    st.info(
+        f"**In-sample (training):** {BACKTEST_START} → {BACKTEST_TEST_START}  "
+        f"**Out-of-sample (test):** {BACKTEST_TEST_START} → today  "
+        f"— metrics below show full period; expand the IS/OOS panel to compare."
+    )
+    with st.expander("In-Sample vs Out-of-Sample Comparison", expanded=False):
+        rows = []
+        for strat in selected_strategies:
+            if strat not in raw_metrics:
+                continue
+            im  = is_metrics.get(strat, {})
+            oom = oos_metrics.get(strat, {})
+            rows.append({
+                "Strategy":        strat,
+                "IS Sharpe":       fmt(im.get("sharpe"))  if "error" not in im  else "—",
+                "OOS Sharpe":      fmt(oom.get("sharpe")) if "error" not in oom else "insufficient data",
+                "IS CAGR":         fmt(im.get("cagr"), pct=True)  if "error" not in im  else "—",
+                "OOS CAGR":        fmt(oom.get("cagr"), pct=True) if "error" not in oom else "—",
+                "IS Max DD":       fmt(im.get("max_drawdown"), pct=True)  if "error" not in im  else "—",
+                "OOS Max DD":      fmt(oom.get("max_drawdown"), pct=True) if "error" not in oom else "—",
+                "IS Win Rate":     fmt(im.get("win_rate"), pct=True)  if "error" not in im  else "—",
+                "OOS Win Rate":    fmt(oom.get("win_rate"), pct=True) if "error" not in oom else "—",
+            })
+        if rows:
+            split_df = pd.DataFrame(rows).set_index("Strategy")
+            st.dataframe(split_df, use_container_width=True)
+            st.caption(
+                "OOS Sharpe significantly below IS Sharpe may indicate overfitting. "
+                "Strategies where OOS > IS are most trustworthy for live deployment."
+            )
 
     # ── Overview ──────────────────────────────────────────────────────────────
     if view_mode == "Overview":

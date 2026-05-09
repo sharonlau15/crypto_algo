@@ -33,17 +33,20 @@ from config.settings import (
     TRANSACTION_COST_BP, SLIPPAGE_BP,
     RISK_LOOKBACK_DAYS, MIN_ANNUALIZED_VOL,
     MAX_WEIGHT_SUM, LONG_SHORT,
+    BACKTEST_TEST_START,
 )
 
 
 # ── Result container ───────────────────────────────────────────────────────────
 @dataclass
 class BacktestResult:
-    strategy_name:    str
-    portfolio_returns: pd.Series          # Daily P&L
-    weights_history:  pd.DataFrame        # w at each rebalance
-    signal_history:   pd.DataFrame        # Raw signals
-    metrics:          dict = field(default_factory=dict)
+    strategy_name:     str
+    portfolio_returns: pd.Series          # Full daily P&L series
+    weights_history:   pd.DataFrame       # w at each rebalance
+    signal_history:    pd.DataFrame       # Raw signals
+    metrics:           dict = field(default_factory=dict)   # Full-period metrics
+    in_sample_metrics: dict = field(default_factory=dict)   # In-sample only
+    oos_metrics:       dict = field(default_factory=dict)   # Out-of-sample only
 
     def __post_init__(self):
         self.metrics = compute_metrics(self.portfolio_returns, self.strategy_name)
@@ -221,11 +224,35 @@ class WalkForwardBacktester:
             weights_history.loc[port_returns.index],
         )
 
+        # ── Train / test split ─────────────────────────────────────────────────
+        # In-sample:     BACKTEST_START → BACKTEST_TEST_START  (model development)
+        # Out-of-sample: BACKTEST_TEST_START → today           (honest evaluation)
+        test_cutoff = pd.Timestamp(BACKTEST_TEST_START, tz="UTC")
+        in_sample   = port_returns[port_returns.index < test_cutoff]
+        out_sample  = port_returns[port_returns.index >= test_cutoff]
+
+        is_metrics  = compute_metrics(in_sample,  f"{strategy_name}[in-sample]")
+        oos_metrics = compute_metrics(out_sample, f"{strategy_name}[out-of-sample]")
+
+        if "error" not in oos_metrics:
+            logger.info(
+                f"  In-sample  Sharpe={is_metrics.get('sharpe')} "
+                f"CAGR={is_metrics.get('cagr')}"
+            )
+            logger.info(
+                f"  Out-sample Sharpe={oos_metrics.get('sharpe')} "
+                f"CAGR={oos_metrics.get('cagr')}"
+            )
+        else:
+            logger.info(f"  Out-of-sample period too short to evaluate yet")
+
         return BacktestResult(
-            strategy_name    = strategy_name,
+            strategy_name     = strategy_name,
             portfolio_returns = port_returns,
-            weights_history  = weights_history,
-            signal_history   = self.signals,
+            weights_history   = weights_history,
+            signal_history    = self.signals,
+            in_sample_metrics = is_metrics,
+            oos_metrics       = oos_metrics,
         )
 
 
@@ -252,8 +279,11 @@ def run_all_backtests(
             optimizer = optimizer,
         )
         results[name] = bt.run(strategy_name=name)
+        r = results[name]
+        oos = r.oos_metrics
         logger.success(
-            f"{name}: Sharpe={results[name].metrics.get('sharpe')} "
-            f"| CAGR={results[name].metrics.get('cagr')}"
+            f"{name}: Sharpe={r.metrics.get('sharpe')} | CAGR={r.metrics.get('cagr')}"
+            + (f" | OOS Sharpe={oos.get('sharpe')} OOS CAGR={oos.get('cagr')}"
+               if "error" not in oos else " | OOS: insufficient data")
         )
     return results
