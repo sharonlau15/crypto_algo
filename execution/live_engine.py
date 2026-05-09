@@ -411,6 +411,13 @@ def execute_rebalance(target_weights: pd.Series, state: dict, nav: float,
 
     current_w[sym] = qty * price / nav  (signed; negative for shorts)
     """
+    if nav <= 0:
+        logger.critical(
+            f"NAV is {nav:.2f} — cannot size orders. "
+            "Fund your Binance Futures wallet and restart. Stopping now."
+        )
+        os._exit(1)
+
     client = get_client(for_trading=True)
 
     # Fetch futures LOT_SIZE filters once for the whole rebalance
@@ -942,6 +949,13 @@ def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: d
 
     nav = compute_nav(state, prices)
     logger.info(f"Portfolio NAV: ${nav:,.2f} USDT")
+
+    if nav <= 0:
+        logger.critical(
+            "NAV is zero — Binance Futures wallet appears unfunded. "
+            "Fund your futures account and restart the engine. Stopping now."
+        )
+        os._exit(1)
 
     state = execute_rebalance(new_weights, state, nav, prices)
 
