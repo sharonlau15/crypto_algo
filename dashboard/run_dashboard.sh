@@ -25,4 +25,4 @@ echo ""
 echo "Press Ctrl+C to stop"
 echo ""
 
-streamlit run dashboard.py
+streamlit run dashboard/dashboard.py
