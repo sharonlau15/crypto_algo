@@ -70,12 +70,10 @@ def _bootstrap_from_binance() -> dict:
                if t["symbol"] in UNIVERSE}
 
     account = client.futures_account()
-    assets  = account.get("assets", [])
 
-    # USDT wallet balance (realized PnL already included)
-    cash = float(next(
-        (a["walletBalance"] for a in assets if a["asset"] == "USDT"), 0.0
-    ))
+    # totalWalletBalance is the account-level USDT-equivalent sum of all assets
+    # (USDT + USDC + BTC collateral etc.) — always prefer this over per-asset lookup
+    cash = float(account.get("totalWalletBalance", 0.0))
 
     # Open futures positions (signed quantities) + their Binance entry prices
     positions        = {sym: 0.0 for sym in UNIVERSE}
@@ -163,13 +161,9 @@ def reconcile_with_binance(state: dict, prices: dict) -> dict:
     try:
         client  = get_client(for_trading=True)
         account = client.futures_account()
-        assets  = account.get("assets", [])
 
-        # ── Wallet balance (USDT; includes realized PnL from closed trades) ───
-        wallet_balance = float(next(
-            (a["walletBalance"] for a in assets if a["asset"] == "USDT"),
-            state.get("cash_usdt", 0.0),
-        ))
+        # totalWalletBalance = USDT-equivalent sum of all collateral (USDT+USDC+BTC...)
+        wallet_balance = float(account.get("totalWalletBalance", state.get("cash_usdt", 0.0)))
 
         # ── Signed futures positions + seed entry prices for unknown positions ─
         new_positions = {sym: 0.0 for sym in UNIVERSE}

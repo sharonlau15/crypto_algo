@@ -145,11 +145,9 @@ def fetch_binance_live_balances() -> dict | None:
 
         # Futures account: wallet balance + open positions
         account = client.futures_account()
-        assets  = account.get("assets", [])
 
-        wallet_balance = float(next(
-            (a["walletBalance"] for a in assets if a["asset"] == "USDT"), 0.0
-        ))
+        # totalWalletBalance = USDT-equivalent of all collateral (USDT + USDC + BTC...)
+        wallet_balance = float(account.get("totalWalletBalance", 0.0))
         unrealized_pnl = float(account.get("totalUnrealizedProfit", 0))
 
         # Signed position quantities from Binance
