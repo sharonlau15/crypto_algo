@@ -250,7 +250,7 @@ def plot_cumulative_returns(bt_data, strategies):
         yaxis_title="Cumulative Return", hovermode="x unified",
         height=500, template="plotly_white",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def plot_daily_returns_distribution(bt_data, strategies):
@@ -266,7 +266,7 @@ def plot_daily_returns_distribution(bt_data, strategies):
         title="Distribution of Daily Returns", xaxis_title="Daily Return (%)",
         yaxis_title="Frequency", barmode="overlay", height=400, template="plotly_white",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def plot_drawdown(bt_data, strategies):
@@ -288,7 +288,7 @@ def plot_drawdown(bt_data, strategies):
         title="Drawdown Over Time", xaxis_title="Date", yaxis_title="Drawdown (%)",
         hovermode="x unified", height=400, template="plotly_white",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def plot_monthly_heatmap(bt_data, strategy):
@@ -311,7 +311,7 @@ def plot_monthly_heatmap(bt_data, strategy):
         title=f"Monthly Returns Heatmap — {strategy}",
         xaxis_title="Month", yaxis_title="Year", height=300,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def plot_rolling_sharpe(bt_data, strategies, window=30):
@@ -337,7 +337,7 @@ def plot_rolling_sharpe(bt_data, strategies, window=30):
         yaxis_title="Sharpe Ratio", hovermode="x unified",
         height=400, template="plotly_white",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -386,7 +386,7 @@ if section == "📊 Backtest Analysis":
             })
         if rows:
             split_df = pd.DataFrame(rows).set_index("Strategy")
-            st.dataframe(split_df, use_container_width=True)
+            st.dataframe(split_df, width="stretch")
             st.caption(
                 "OOS Sharpe significantly below IS Sharpe may indicate overfitting. "
                 "Strategies where OOS > IS are most trustworthy for live deployment."
@@ -428,14 +428,14 @@ if section == "📊 Backtest Analysis":
                     "Win Rate": fmt(m.get("win_rate"), pct=True),
                 })
         if rows:
-            st.dataframe(pd.DataFrame(rows).set_index("Strategy"), use_container_width=True)
+            st.dataframe(pd.DataFrame(rows).set_index("Strategy"), width="stretch")
 
         if bt_data["pnl_summary"] is not None:
             st.subheader("P&L Summary")
             pnl = bt_data["pnl_summary"]
             avail = [s for s in selected_strategies if s in pnl.index]
             if avail:
-                st.dataframe(pnl.loc[avail], use_container_width=True)
+                st.dataframe(pnl.loc[avail], width="stretch")
 
     # ── Individual Analysis ───────────────────────────────────────────────────
     elif view_mode == "Individual Analysis":
@@ -510,7 +510,7 @@ if section == "📊 Backtest Analysis":
                     comp_df.style
                         .highlight_max(axis=0, subset=["Sharpe", "Sortino", "CAGR", "Win Rate"])
                         .highlight_min(axis=0, subset=["Max DD", "Ann Vol"]),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
     # ── Risk Analysis ─────────────────────────────────────────────────────────
@@ -538,7 +538,7 @@ if section == "📊 Backtest Analysis":
                     xaxis_title="Date", yaxis_title="Volatility (%)",
                     hovermode="x unified", height=400, template="plotly_white",
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
         st.subheader("Risk Metrics Summary")
         rows = []
@@ -555,7 +555,7 @@ if section == "📊 Backtest Analysis":
                     "Profit Factor": fmt(m.get("profit_factor", 0)),
                 })
         if rows:
-            st.dataframe(pd.DataFrame(rows).set_index("Strategy"), use_container_width=True)
+            st.dataframe(pd.DataFrame(rows).set_index("Strategy"), width="stretch")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -699,7 +699,7 @@ elif section == "🟢 Live Trading (Testnet)":
             xaxis_title="Date", yaxis_title="NAV (USDT)",
             hovermode="x unified", height=400, template="plotly_white",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     else:
         st.info("NAV history will appear here after the first rebalance cycle completes.")
 
@@ -735,7 +735,7 @@ elif section == "🟢 Live Trading (Testnet)":
                     "Unrealised $":   f"${unreal_usd:+,.2f}" if unreal_usd is not None else "—",
                     "Entry Date":     (entry.get("entry_date", "")[:10] if entry.get("entry_date") else "—"),
                 })
-            st.dataframe(pd.DataFrame(rows).set_index("Symbol"), use_container_width=True)
+            st.dataframe(pd.DataFrame(rows).set_index("Symbol"), width="stretch")
             price_note = "Live prices from Binance." if binance else "⚠️ Binance unavailable — using cached OHLCV prices."
             st.caption(price_note)
         else:
@@ -751,7 +751,7 @@ elif section == "🟢 Live Trading (Testnet)":
         st.dataframe(all_df.style.applymap(
             lambda v: "color: #22c55e" if v > 0 else ("color: #ef4444" if v < 0 else ""),
             subset=["Qty"],
-        ), use_container_width=True)
+        ), width="stretch")
 
     # ── Stop / Profit tracking ────────────────────────────────────────────────
     if position_entries:
@@ -775,7 +775,7 @@ elif section == "🟢 Live Trading (Testnet)":
                 "Stop Level":     f"${ep * (1 - STOP_LOSS_PCT):,.2f}" if ep else "—",
                 "TP Level":       f"${ep * (1 + TAKE_PROFIT_PCT):,.2f}" if ep else "—",
             })
-        st.dataframe(pd.DataFrame(risk_rows).set_index("Symbol"), use_container_width=True)
+        st.dataframe(pd.DataFrame(risk_rows).set_index("Symbol"), width="stretch")
         st.caption(
             f"Stop Loss: {STOP_LOSS_PCT*100:.0f}% | "
             f"Take Profit: {TAKE_PROFIT_PCT*100:.0f}% | "
@@ -828,7 +828,7 @@ elif section == "🟢 Live Trading (Testnet)":
                 margin=dict(l=180, r=20, t=20, b=40),
                 template="plotly_white",
             )
-            st.plotly_chart(heatmap_fig, use_container_width=True)
+            st.plotly_chart(heatmap_fig, width="stretch")
 
             # Active-only detail table
             active_detail = {
@@ -906,7 +906,7 @@ elif section == "🟢 Live Trading (Testnet)":
         if "Realised P&L" in trades_df.columns:
             style = style.applymap(_color_pnl, subset=["Realised P&L"])
 
-        st.dataframe(style, use_container_width=True)
+        st.dataframe(style, width="stretch")
 
         n_buys  = (trades_df.get("Side", pd.Series()) == "BUY").sum()
         n_sells = (trades_df.get("Side", pd.Series()) == "SELL").sum()
@@ -969,7 +969,7 @@ elif section == "📈 Strategy Monitor":
                 lambda v: "color: #22c55e; font-weight: bold" if v == "★ LIVE" else "",
                 subset=["Active"],
             ),
-            use_container_width=True,
+            width="stretch",
         )
         if active_strats:
             st.caption(
@@ -1060,7 +1060,7 @@ elif section == "📈 Strategy Monitor":
                     .applymap(_color_score, subset=["7-day Sharpe"])
                     .applymap(lambda v: "color: #22c55e; font-weight: bold" if v == "★" else "", subset=["Currently Live"])
                     .applymap(lambda v: "color: #f59e0b; font-weight: bold" if "CANDIDATE" in str(v) else "", subset=["Would Takeover"]),
-                use_container_width=True,
+                width="stretch",
             )
             st.caption(
                 "**→ CANDIDATE**: outperforming enough to displace a current active strategy "
@@ -1108,7 +1108,7 @@ elif section == "📈 Strategy Monitor":
             hovermode="x unified", height=520, template="plotly_white",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         st.caption("Active strategies (★) shown with solid, thicker lines. Others are dotted.")
     else:
         st.info(
@@ -1146,7 +1146,7 @@ elif section == "📈 Strategy Monitor":
             height=380, template="plotly_white",
             xaxis_tickangle=-30,
         )
-        st.plotly_chart(bar_fig, use_container_width=True)
+        st.plotly_chart(bar_fig, width="stretch")
         st.caption("Green = currently active strategy. Blue = positive return. Red = negative return.")
 
     st.markdown("---")
@@ -1184,7 +1184,7 @@ elif section == "📈 Strategy Monitor":
                     )
                     w_df["Side"]   = w_df["Weight"].apply(lambda x: "LONG" if x > 0 else "SHORT")
                     w_df["Weight"] = w_df["Weight"].apply(lambda x: f"{abs(x)*100:.1f}%")
-                    st.dataframe(w_df, use_container_width=True)
+                    st.dataframe(w_df, width="stretch")
                 else:
                     st.caption("No positions (holding cash)")
 
@@ -1238,7 +1238,7 @@ elif section == "📈 Strategy Monitor":
                         )
                     if "Realized P&L" in th_df.columns:
                         style = style.applymap(_color_pnl_hypo, subset=["Realized P&L"])
-                    st.dataframe(style, use_container_width=True)
+                    st.dataframe(style, width="stretch")
                 else:
                     st.caption("No trades yet — appears after second signal cycle.")
 
