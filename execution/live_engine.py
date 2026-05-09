@@ -43,7 +43,7 @@ from config.settings import (
     STOP_LOSS_PCT, TAKE_PROFIT_PCT,
     TRAILING_STOP_PCT, USE_TRAILING_STOP,
     SIGNAL_RECOMPUTE_MINS, PRICE_MONITOR_SECS, REBALANCE_THRESHOLD,
-    MAX_LIVE_POSITIONS, MAX_POSITION_SIZE,
+    MAX_LIVE_POSITIONS, MAX_POSITION_SIZE, FUTURES_LEVERAGE,
 )
 from data.ingestion import get_universe_ohlcv, build_close_matrix, build_return_matrix
 from data.ingestion import get_fear_greed_index, get_universe_funding_rates
@@ -58,50 +58,58 @@ _last_heartbeat = 0.0   # tracks when the monitor last printed a full portfolio 
 # ── State management ───────────────────────────────────────────────────────────
 def _bootstrap_from_binance() -> dict:
     """
-    Called on fresh start (no state file). Reads actual Binance account state
-    so the engine picks up existing positions and real cash after a redeploy.
+    Called on fresh start (no state file). Reads actual Binance FUTURES account
+    state so the engine picks up existing positions and real wallet balance.
 
-    Both token quantities AND USDT cash come from Binance — no estimation.
-    initial_nav is left unset (None) so reconcile_with_binance() can stamp it
-    from the true opening balance on the first signal cycle.
+    Quantities are signed (positive = long, negative = short).
+    NAV = futures wallet balance + total unrealized PnL.
     """
     client  = get_client(for_trading=True)
     tickers = {t["symbol"]: float(t["price"])
-               for t in client.get_all_tickers()
+               for t in client.futures_symbol_ticker()
                if t["symbol"] in UNIVERSE}
 
-    account  = client.get_account()
-    balances = account.get("balances", [])
+    account = client.futures_account()
+    assets  = account.get("assets", [])
 
-    positions = {sym: 0.0 for sym in UNIVERSE}
-    for b in balances:
-        sym = b["asset"] + "USDT"
-        if sym in UNIVERSE:
-            qty = float(b["free"]) + float(b["locked"])
-            if qty > 0:
-                positions[sym] = qty
-
-    # Use actual Binance USDT balance — accurate for demo/live accounts
+    # USDT wallet balance (realized PnL already included)
     cash = float(next(
-        (b["free"] for b in balances if b["asset"] == "USDT"), 0.0
+        (a["walletBalance"] for a in assets if a["asset"] == "USDT"), 0.0
     ))
 
-    position_value = sum(positions[sym] * tickers.get(sym, 0) for sym in UNIVERSE)
-    nav = round(cash + position_value, 2)
+    # Open futures positions (signed quantities) + their Binance entry prices
+    positions        = {sym: 0.0 for sym in UNIVERSE}
+    position_entries = {}
+    for p in account.get("positions", []):
+        sym = p["symbol"]
+        if sym in UNIVERSE:
+            qty = float(p["positionAmt"])
+            if qty != 0:
+                positions[sym] = qty
+                ep = float(p.get("entryPrice", 0))
+                if ep > 0:
+                    position_entries[sym] = {
+                        "entry_price": ep,
+                        "entry_date":  str(pd.Timestamp.now(tz="UTC")),
+                        "peak_price":  tickers.get(sym, ep),
+                    }
+
+    unrealized_pnl = float(account.get("totalUnrealizedProfit", 0))
+    nav = round(cash + unrealized_pnl, 2)
 
     logger.info(
-        f"Bootstrap from Binance: cash=${cash:,.2f} | "
-        f"positions=${position_value:,.2f} | NAV=${nav:,.2f}"
+        f"Bootstrap from Binance Futures: wallet=${cash:,.2f} | "
+        f"unrealized PnL=${unrealized_pnl:,.2f} | NAV=${nav:,.2f}"
     )
 
     return {
         "positions":        positions,
         "cash_usdt":        cash,
-        "initial_nav":      nav,    # real opening NAV, not a hardcoded constant
+        "initial_nav":      nav,
         "last_run":         None,
         "nav_history":      [],
         "current_weights":  {},
-        "position_entries": {},
+        "position_entries": position_entries,
         "trade_log":        [],
         "hypothetical":     {},
         "active_strategies": [],
@@ -141,59 +149,70 @@ def load_state() -> dict:
 
 def reconcile_with_binance(state: dict, prices: dict) -> dict:
     """
-    Sync token positions and USDT cash from the actual Binance account.
+    Sync futures positions and USDT wallet balance from the actual Binance account.
 
     What comes from Binance (authoritative):
-      - Token quantities  — exact; we cannot have positions outside the engine
-      - USDT balance      — exact; reflects actual fills, fees, and rounding
-      - initial_nav       — stamped ONCE on the first successful reading;
-                            never overwritten so P&L baseline is always stable
+      - positionAmt    — signed qty per symbol (positive=long, negative=short)
+      - walletBalance  — USDT including all realized PnL and fees
+      - entryPrice     — seeded for any positions we didn't open this session
+      - initial_nav    — stamped ONCE on the first successful reading
 
-    What stays internal (Binance doesn't store it):
-      - Entry prices      — kept in state["position_entries"]; used for
-                            per-position unrealized P&L in dashboard
+    What stays internal:
+      - position_entries["entry_price"] — used for per-position unrealized P&L
     """
     try:
-        client   = get_client(for_trading=True)
-        account  = client.get_account()
-        balances = account.get("balances", [])
+        client  = get_client(for_trading=True)
+        account = client.futures_account()
+        assets  = account.get("assets", [])
 
-        # ── Token positions ───────────────────────────────────────────────────
-        new_positions = {sym: 0.0 for sym in UNIVERSE}
-        for b in balances:
-            sym = b["asset"] + "USDT"
-            if sym in UNIVERSE:
-                qty = float(b["free"]) + float(b["locked"])
-                if qty > 0:
-                    new_positions[sym] = qty
-
-        # ── USDT cash ─────────────────────────────────────────────────────────
-        binance_usdt = float(next(
-            (b["free"] for b in balances if b["asset"] == "USDT"),
+        # ── Wallet balance (USDT; includes realized PnL from closed trades) ───
+        wallet_balance = float(next(
+            (a["walletBalance"] for a in assets if a["asset"] == "USDT"),
             state.get("cash_usdt", 0.0),
         ))
 
-        drift = binance_usdt - state.get("cash_usdt", binance_usdt)
+        # ── Signed futures positions + seed entry prices for unknown positions ─
+        new_positions = {sym: 0.0 for sym in UNIVERSE}
+        for p in account.get("positions", []):
+            sym = p["symbol"]
+            if sym in UNIVERSE:
+                qty = float(p["positionAmt"])
+                if qty != 0:
+                    new_positions[sym] = qty
+                    if sym not in state.get("position_entries", {}):
+                        ep = float(p.get("entryPrice", 0))
+                        if ep > 0:
+                            state.setdefault("position_entries", {})[sym] = {
+                                "entry_price": ep,
+                                "entry_date":  str(pd.Timestamp.now(tz="UTC")),
+                                "peak_price":  prices.get(sym, ep),
+                            }
+
+        # Clear entry data for positions that are now closed
+        for sym in list(state.get("position_entries", {}).keys()):
+            if new_positions.get(sym, 0) == 0:
+                state["position_entries"].pop(sym, None)
+
+        drift = wallet_balance - state.get("cash_usdt", wallet_balance)
         if abs(drift) > 0.10:
             logger.info(
-                f"Cash reconciliation: internal=${state.get('cash_usdt', 0):,.2f} "
-                f"→ Binance=${binance_usdt:,.2f}  (Δ={drift:+.2f}, fees/rounding)"
+                f"Wallet reconciliation: internal=${state.get('cash_usdt', 0):,.2f} "
+                f"→ Binance=${wallet_balance:,.2f}  (Δ={drift:+.2f})"
             )
 
         state["positions"] = new_positions
-        state["cash_usdt"] = binance_usdt
+        state["cash_usdt"] = wallet_balance
 
         # ── Stamp initial_nav once from the first real Binance reading ─────────
-        # Once set it never changes, so the P&L baseline is always stable.
         if state.get("initial_nav") is None:
-            pos_value   = sum(new_positions[sym] * prices.get(sym, 0) for sym in UNIVERSE)
-            live_nav    = round(binance_usdt + pos_value, 2)
+            unrealized  = float(account.get("totalUnrealizedProfit", 0))
+            live_nav    = round(wallet_balance + unrealized, 2)
             if live_nav > 0:
                 state["initial_nav"] = live_nav
-                logger.info(f"Initial NAV anchored from Binance: ${live_nav:,.2f}")
+                logger.info(f"Initial NAV anchored from Binance Futures: ${live_nav:,.2f}")
 
     except Exception as e:
-        logger.warning(f"Binance reconciliation skipped ({e}) — using internal state")
+        logger.warning(f"Binance futures reconciliation skipped ({e}) — using internal state")
 
     return state
 
@@ -223,37 +242,52 @@ def save_state(state: dict):
 
 # ── Portfolio NAV ──────────────────────────────────────────────────────────────
 def compute_nav(state: dict, current_prices: dict = None) -> float:
-    if current_prices is None:
-        client = get_client(for_trading=False)
-        current_prices = {}
-        for sym in UNIVERSE:
-            try:
-                current_prices[sym] = float(client.get_symbol_ticker(symbol=sym)["price"])
-            except Exception:
-                pass
+    """
+    Futures NAV = wallet balance + unrealized PnL.
 
-    nav = state["cash_usdt"]
+    unrealized PnL = Σ qty_i × (current_price_i - entry_price_i)
+    Works for both longs (qty > 0) and shorts (qty < 0).
+    """
+    if current_prices is None:
+        current_prices = fetch_current_prices()
+
+    wallet   = state["cash_usdt"]
+    entries  = state.get("position_entries", {})
+    unrealized = 0.0
     for sym, qty in state["positions"].items():
         if qty != 0 and sym in current_prices:
-            nav += qty * current_prices[sym]
-    return nav
+            ep = entries.get(sym, {}).get("entry_price", current_prices[sym])
+            unrealized += qty * (current_prices[sym] - ep)
+    return wallet + unrealized
 
 
-# ── Fetch current prices (all universe) ───────────────────────────────────────
+# ── Fetch current prices (futures) ────────────────────────────────────────────
 def fetch_current_prices() -> dict:
     client = get_client(for_trading=False)
+    try:
+        return {t["symbol"]: float(t["price"])
+                for t in client.futures_symbol_ticker()
+                if t["symbol"] in UNIVERSE}
+    except Exception as e:
+        logger.warning(f"Bulk futures price fetch failed ({e}) — falling back to per-symbol")
     prices = {}
     for sym in UNIVERSE:
         try:
-            prices[sym] = float(client.get_symbol_ticker(symbol=sym)["price"])
-        except Exception as e:
-            logger.warning(f"Price fetch failed {sym}: {e}")
+            prices[sym] = float(client.futures_symbol_ticker(symbol=sym)["price"])
+        except Exception as ex:
+            logger.warning(f"Price fetch failed {sym}: {ex}")
     return prices
 
 
 # ── Stop loss / Take profit / Trailing stop check ─────────────────────────────
 def check_position_exits(state: dict, current_prices: dict) -> dict:
-    """Return {symbol: exit_price} for positions that breached a risk limit."""
+    """
+    Return {symbol: exit_price} for positions that breached a risk limit.
+
+    pct is signed by direction so the same thresholds apply to longs and shorts:
+      long  (qty > 0): profit when price rises  → pct = +(current-entry)/entry
+      short (qty < 0): profit when price falls  → pct = -(current-entry)/entry
+    """
     exits = {}
     if "position_entries" not in state:
         state["position_entries"] = {}
@@ -268,13 +302,15 @@ def check_position_exits(state: dict, current_prices: dict) -> dict:
         if current is None:
             continue
 
-        pct = (current - entry_price) / entry_price
+        direction = 1 if qty > 0 else -1
+        pct = direction * (current - entry_price) / entry_price  # signed P&L %
 
         if pct <= -STOP_LOSS_PCT:
             exits[sym] = current
             logger.warning(
                 f"[STOP LOSS] {sym} {pct*100:.2f}% "
-                f"(entry={entry_price:.2f} now={current:.2f})"
+                f"(entry={entry_price:.2f} now={current:.2f} "
+                f"{'long' if qty > 0 else 'short'})"
             )
             continue
 
@@ -286,17 +322,26 @@ def check_position_exits(state: dict, current_prices: dict) -> dict:
             )
             continue
 
+        # Trailing stop: track peak-price for longs, trough-price for shorts
         if USE_TRAILING_STOP and TRAILING_STOP_PCT > 0:
-            peak = entry.get("peak_price", entry_price)
-            if current > peak:
-                entry["peak_price"] = current
-                peak = current
-            dd = (peak - current) / peak
+            if qty > 0:
+                peak = entry.get("peak_price", entry_price)
+                if current > peak:
+                    entry["peak_price"] = current
+                    peak = current
+                dd = (peak - current) / peak
+            else:
+                trough = entry.get("peak_price", entry_price)
+                if current < trough:
+                    entry["peak_price"] = current
+                    trough = current
+                dd = (current - trough) / trough if trough > 0 else 0
             if dd >= TRAILING_STOP_PCT:
                 exits[sym] = current
                 logger.warning(
-                    f"[TRAILING STOP] {sym} -{dd*100:.2f}% from peak "
-                    f"(peak={peak:.2f} now={current:.2f})"
+                    f"[TRAILING STOP] {sym} -{dd*100:.2f}% from "
+                    f"{'peak' if qty > 0 else 'trough'} "
+                    f"(ref={entry.get('peak_price', entry_price):.2f} now={current:.2f})"
                 )
 
     return exits
@@ -304,35 +349,39 @@ def check_position_exits(state: dict, current_prices: dict) -> dict:
 
 # ── Execute exit orders only (no rebalance) ───────────────────────────────────
 def execute_exits_only(forced_exits: dict, state: dict) -> dict:
-    """Close specific positions immediately. Used by the price monitor."""
+    """Close specific futures positions immediately. Used by the price monitor."""
     client = get_client(for_trading=True)
 
     for sym, exit_price in forced_exits.items():
         qty = state["positions"].get(sym, 0)
         if qty == 0:
             continue
+        # Close long → SELL; close short → BUY; reduceOnly ensures no reversal
+        side    = "SELL" if qty > 0 else "BUY"
+        abs_qty = abs(qty)
         try:
             if PAPER_TRADING:
-                order = client.create_order(
+                order = client.futures_create_order(
                     symbol=sym,
-                    side="SELL" if qty > 0 else "BUY",
+                    side=side,
                     type="MARKET",
-                    quantity=abs(qty),
+                    quantity=abs_qty,
+                    reduceOnly=True,
                 )
-                proceeds = qty * exit_price
-                state["positions"][sym] = 0.0
-                state["cash_usdt"] += proceeds
-                state["position_entries"].pop(sym, None)
-
                 entry_price = state.get("position_entries", {}).get(sym, {}).get("entry_price", exit_price)
-                pos_pnl     = (exit_price - entry_price) * qty
-                pos_pct     = (exit_price - entry_price) / entry_price * 100 if entry_price else 0
+                pos_pnl     = qty * (exit_price - entry_price)   # signed correctly for long/short
+                direction   = 1 if qty > 0 else -1
+                pos_pct     = direction * (exit_price - entry_price) / entry_price * 100 if entry_price else 0
+
+                state["positions"][sym] = 0.0
+                state["position_entries"].pop(sym, None)
+                state["cash_usdt"] += pos_pnl  # approx; reconcile will correct from Binance
 
                 state.setdefault("trade_log", []).append({
                     "time":      str(datetime.now(timezone.utc)),
                     "symbol":    sym,
-                    "side":      "SELL",
-                    "qty":       abs(qty),
+                    "side":      side,
+                    "qty":       abs_qty,
                     "price":     exit_price,
                     "pnl":       round(pos_pnl, 4),
                     "reason":    "stop/tp",
@@ -340,7 +389,7 @@ def execute_exits_only(forced_exits: dict, state: dict) -> dict:
                     "order_id":  order.get("orderId"),
                 })
                 logger.warning(
-                    f"📝 [EXIT ORDER] SELL {abs(qty):.6f} {sym} @ ${exit_price:,.2f} "
+                    f"📝 [FUTURES EXIT] {side} {abs_qty:.6f} {sym} @ ${exit_price:,.2f} "
                     f"| P&L: {pos_pnl:+.2f} ({pos_pct:+.2f}%) "
                     f"| orderId={order.get('orderId')}"
                 )
@@ -350,106 +399,116 @@ def execute_exits_only(forced_exits: dict, state: dict) -> dict:
     return state
 
 
-# ── Full rebalance (signal-driven) ────────────────────────────────────────────
+# ── Full rebalance (signal-driven, futures) ────────────────────────────────────
 def execute_rebalance(target_weights: pd.Series, state: dict, nav: float,
                       current_prices: dict) -> dict:
-    """Place orders to shift current weights towards target weights."""
+    """
+    Place futures orders to shift signed position weights towards target weights.
+
+    target_weights[sym] > 0  → long exposure
+    target_weights[sym] < 0  → short exposure
+    target_weights[sym] == 0 → flat (close any open position)
+
+    current_w[sym] = qty * price / nav  (signed; negative for shorts)
+    """
     client = get_client(for_trading=True)
 
-    # Leave a small buffer so fees on the last BUY don't push over the limit.
-    # NOTE: We intentionally do NOT reconcile against the Binance account balance
-    # because demo accounts start with large virtual USDT that does not reflect
-    # our $10k starting capital. Internal tracking is authoritative.
-    available_cash = state["cash_usdt"] * 0.999
-
-    current_values = {
-        sym: state["positions"].get(sym, 0) * current_prices.get(sym, 0)
-        for sym in UNIVERSE
-    }
-    current_w = {sym: v / nav for sym, v in current_values.items()}
+    # Fetch futures LOT_SIZE filters once for the whole rebalance
+    try:
+        exchange_info = {
+            s["symbol"]: s
+            for s in client.futures_exchange_info()["symbols"]
+            if s["symbol"] in UNIVERSE
+        }
+    except Exception as e:
+        logger.error(f"Could not fetch futures exchange info: {e}")
+        return state
 
     for sym in UNIVERSE:
-        target_w  = float(target_weights.get(sym, 0.0))
-        current_w_ = current_w.get(sym, 0.0)
-        delta_w    = target_w - current_w_
+        target_w   = float(target_weights.get(sym, 0.0))
+        qty_cur    = float(state["positions"].get(sym, 0.0))  # signed
+        price      = current_prices.get(sym)
+        if not price:
+            continue
+
+        # Signed current weight (negative = short)
+        current_w  = (qty_cur * price) / nav
+        delta_w    = target_w - current_w
         delta_usdt = delta_w * nav
 
         if abs(delta_usdt) < MIN_ORDER_USDT:
             continue
 
-        price = current_prices.get(sym)
-        if not price:
+        sym_info = exchange_info.get(sym)
+        if sym_info is None:
+            logger.warning(f"Futures symbol info not found for {sym} — skipping")
+            continue
+        step = next(
+            (float(f["stepSize"]) for f in sym_info["filters"] if f["filterType"] == "LOT_SIZE"),
+            0.001,
+        )
+
+        qty  = abs(delta_usdt) / price
+        qty  = round(qty // step * step, 8)
+        if qty <= 0:
             continue
 
+        side = "BUY" if delta_w > 0 else "SELL"
+
         try:
-            info = client.get_symbol_info(sym)
-            if info is None:
-                logger.warning(f"Symbol info not found for {sym} — skipping (possibly delisted or renamed)")
-                continue
-            step = next(
-                float(f["stepSize"])
-                for f in info["filters"]
-                if f["filterType"] == "LOT_SIZE"
-            )
-            qty  = abs(delta_usdt) / price
-            qty  = round(qty // step * step, 8)
-            if qty <= 0:
-                continue
-
-            side = "BUY" if delta_usdt > 0 else "SELL"
-
-            # Cap BUY size to available cash (fees + rounding can exceed balance)
-            if side == "BUY":
-                delta_usdt = min(delta_usdt, available_cash)
-                if delta_usdt < MIN_ORDER_USDT:
-                    logger.info(f"  Skipping {sym}: insufficient cash (${available_cash:.2f} available)")
-                    continue
-                qty = round((delta_usdt / price) // step * step, 8)
-                if qty <= 0:
-                    continue
-
             if PAPER_TRADING:
-                order = client.create_order(
+                order = client.futures_create_order(
                     symbol=sym, side=side, type="MARKET", quantity=qty,
                 )
-                cost = qty * price
+                notional = qty * price
                 logger.success(
-                    f"📝 [DEMO ORDER] {side} {qty:.6f} {sym} @ ${price:,.2f} "
-                    f"| Δw={delta_w*100:+.1f}% | {'Cost' if side=='BUY' else 'Proceeds'}=${cost:,.2f} "
+                    f"📝 [FUTURES DEMO] {side} {qty:.6f} {sym} @ ${price:,.2f} "
+                    f"| Δw={delta_w*100:+.1f}% | Notional=${notional:,.2f} "
                     f"| orderId={order.get('orderId')}"
                 )
 
                 state.setdefault("position_entries", {})
-                if side == "BUY":
-                    is_new = state["positions"].get(sym, 0) == 0
-                    if is_new:
+                new_qty  = round(qty_cur + (qty if side == "BUY" else -qty), 8)
+                trade_pnl = 0.0
+
+                # Determine if this is opening/adding vs reducing/closing
+                is_opening = (qty_cur == 0) or (qty_cur > 0 and side == "BUY") or (qty_cur < 0 and side == "SELL")
+
+                if is_opening:
+                    if sym in state["position_entries"]:
+                        # Weighted average entry price when adding to a position
+                        old_ep  = state["position_entries"][sym]["entry_price"]
+                        old_qty = abs(qty_cur)
+                        new_ep  = (old_ep * old_qty + price * qty) / (old_qty + qty)
+                        state["position_entries"][sym]["entry_price"] = new_ep
+                    else:
+                        sl_price = price * (1 - STOP_LOSS_PCT) if side == "BUY" else price * (1 + STOP_LOSS_PCT)
+                        tp_price = price * (1 + TAKE_PROFIT_PCT) if side == "BUY" else price * (1 - TAKE_PROFIT_PCT)
                         state["position_entries"][sym] = {
                             "entry_price": price,
                             "entry_date":  str(pd.Timestamp.now(tz="UTC")),
                             "peak_price":  price,
                         }
-                        sl_price = price * (1 - STOP_LOSS_PCT)
-                        tp_price = price * (1 + TAKE_PROFIT_PCT)
                         logger.info(
                             f"   ↳ Entry=${price:,.2f} | "
-                            f"Stop Loss=${sl_price:,.2f} (-{STOP_LOSS_PCT*100:.0f}%) | "
-                            f"Take Profit=${tp_price:,.2f} (+{TAKE_PROFIT_PCT*100:.0f}%)"
+                            f"Stop Loss=${sl_price:,.2f} | "
+                            f"Take Profit=${tp_price:,.2f}"
                         )
-                    state["positions"][sym]  = state["positions"].get(sym, 0) + qty
-                    state["cash_usdt"]      -= cost
-                    available_cash          -= cost  # track within this rebalance loop
                 else:
-                    entry_price = state.get("position_entries", {}).get(sym, {}).get("entry_price", price)
-                    sell_pnl    = (price - entry_price) * qty
-                    sell_pct    = (price - entry_price) / entry_price * 100 if entry_price else 0
-                    logger.info(f"   ↳ Realised P&L: {sell_pnl:+.2f} ({sell_pct:+.2f}%)")
-                    new_qty = state["positions"].get(sym, 0) - qty
-                    if new_qty <= 0:
-                        state["position_entries"].pop(sym, None)
-                    state["positions"][sym] = max(new_qty, 0)
-                    state["cash_usdt"]     += qty * price
+                    # Reducing or flipping — compute realized PnL for the closed portion
+                    ep = state["position_entries"].get(sym, {}).get("entry_price", price)
+                    direction = 1 if qty_cur > 0 else -1
+                    trade_pnl = direction * qty * (price - ep)
+                    pnl_pct   = direction * (price - ep) / ep * 100 if ep else 0
+                    logger.info(f"   ↳ Realised P&L: {trade_pnl:+.2f} ({pnl_pct:+.2f}%)")
+                    state["cash_usdt"] += trade_pnl  # approx; reconcile will sync
 
-                trade_pnl = sell_pnl if side == "SELL" else 0.0
+                    # Clear entry data when fully closed or flipped
+                    if abs(new_qty) < step:
+                        state["position_entries"].pop(sym, None)
+                        new_qty = 0.0
+
+                state["positions"][sym] = new_qty
                 state.setdefault("trade_log", []).append({
                     "time":      str(datetime.now(timezone.utc)),
                     "symbol":    sym,
@@ -463,7 +522,7 @@ def execute_rebalance(target_weights: pd.Series, state: dict, nav: float,
                 })
 
         except Exception as e:
-            logger.error(f"Order failed {sym}: {e}")
+            logger.error(f"Futures order failed {sym}: {e}")
 
     return state
 
@@ -518,7 +577,7 @@ def compute_target_weights(
     close: pd.DataFrame,
     hypotheticals: dict = None,
 ) -> tuple:
-    """Return (target_weights, active_selection) for the LIVE portfolio (long-only, spot-safe)."""
+    """Return (target_weights, active_selection) for the LIVE futures portfolio."""
     selection = seasonality_analyzer.select_strategy(
         current_date=close.index[-1], top_n=2,
         hypotheticals=hypotheticals,
@@ -528,12 +587,12 @@ def compute_target_weights(
     blended      = blend_signals(signals_dict, selection, close)
     current_sigs = blended.iloc[-1].reindex(UNIVERSE, fill_value=0)
 
-    if current_sigs[current_sigs > 0].empty:
-        logger.warning("No positive signals from active strategies — holding cash")
+    if current_sigs.abs().max() == 0:
+        logger.warning("No signals from active strategies — holding current positions")
         return pd.Series(0.0, index=UNIVERSE), selection
 
-    # long_short=False: spot demo trading cannot execute actual short sells
-    return _signal_to_weights(current_sigs, long_short=False), selection
+    # long_short=True: futures supports real short positions
+    return _signal_to_weights(current_sigs, long_short=True), selection
 
 
 # ── Hypothetical paper portfolios (all 10 strategies simultaneously) ───────────
@@ -946,6 +1005,18 @@ def _generate_final_reports():
         logger.error(f"Report generation error: {e}")
 
 
+# ── Futures leverage setup ─────────────────────────────────────────────────────
+def setup_futures_leverage():
+    """Set leverage for every universe symbol at engine startup."""
+    client = get_client(for_trading=True)
+    for sym in UNIVERSE:
+        try:
+            client.futures_change_leverage(symbol=sym, leverage=FUTURES_LEVERAGE)
+            logger.info(f"  Leverage set: {sym} → {FUTURES_LEVERAGE}x")
+        except Exception as e:
+            logger.warning(f"  Could not set leverage for {sym}: {e}")
+
+
 # ── Scheduler setup ────────────────────────────────────────────────────────────
 def start_scheduler(strategies: list, seasonality_analyzer, signals_dict: dict,
                     run_now: bool = False):
@@ -958,6 +1029,9 @@ def start_scheduler(strategies: list, seasonality_analyzer, signals_dict: dict,
     each other. Main thread stays alive via a KeyboardInterrupt-safe sleep loop.
     """
     setup_logger()
+
+    logger.info("Setting futures leverage for all universe symbols...")
+    setup_futures_leverage()
 
     scheduler = BackgroundScheduler(timezone="UTC")
 
@@ -987,9 +1061,11 @@ def start_scheduler(strategies: list, seasonality_analyzer, signals_dict: dict,
     scheduler.start()
 
     logger.info("=" * 55)
-    logger.info("🚀  REAL-TIME ALGO TRADING ENGINE — BINANCE DEMO TRADING")
+    logger.info("🚀  REAL-TIME ALGO TRADING ENGINE — BINANCE FUTURES DEMO")
     logger.info("=" * 55)
-    logger.info(f"  📊 REAL DATA  |  🎮 DEMO TRADING EXECUTION (virtual money)")
+    logger.info(f"  📊 REAL DATA  |  🎮 FUTURES DEMO EXECUTION (virtual money, real prices)")
+    logger.info(f"  Leverage         : {FUTURES_LEVERAGE}x on all positions")
+    logger.info(f"  Mode             : Long/Short enabled (real shorts via perpetual futures)")
     logger.info(f"  Signal recompute : every {SIGNAL_RECOMPUTE_MINS} min  → places orders only if signal shifts")
     logger.info(f"  Stop/TP monitor  : every {PRICE_MONITOR_SECS}s   → exits positions immediately on breach")
     logger.info(f"  Rebalance trigger: total |Δweight| > {REBALANCE_THRESHOLD:.0%}")

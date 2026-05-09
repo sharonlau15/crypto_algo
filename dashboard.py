@@ -128,41 +128,50 @@ def load_strategy_monitor_data():
 @st.cache_data(ttl=30)
 def fetch_binance_live_balances() -> dict | None:
     """
-    Pull real token quantities and live prices directly from Binance.
+    Pull futures positions and wallet balance directly from Binance.
     Returns None if API keys are unavailable or the request fails.
 
-    Token quantities come from the actual account balances (exact).
-    Prices come from the live ticker (real-time, not cached OHLCV).
-    We deliberately ignore the Binance USDT balance — demo accounts
-    carry a large fake USDT (~$100k+) that does not reflect our capital.
-    Cash is read from state["cash_usdt"] which the engine maintains
-    accurately through actual trade fills.
+    positions[sym] is signed: positive = long, negative = short.
+    NAV = wallet_balance + unrealized_pnl (the futures equity formula).
     """
     try:
         from config.client import get_client
         client = get_client(for_trading=True)
 
+        # Live futures prices
         tickers = {t["symbol"]: float(t["price"])
-                   for t in client.get_all_tickers()
+                   for t in client.futures_symbol_ticker()
                    if t["symbol"] in UNIVERSE}
 
-        account   = client.get_account()
+        # Futures account: wallet balance + open positions
+        account = client.futures_account()
+        assets  = account.get("assets", [])
+
+        wallet_balance = float(next(
+            (a["walletBalance"] for a in assets if a["asset"] == "USDT"), 0.0
+        ))
+        unrealized_pnl = float(account.get("totalUnrealizedProfit", 0))
+
+        # Signed position quantities from Binance
         positions = {sym: 0.0 for sym in UNIVERSE}
-        for balance in account.get("balances", []):
-            sym = balance["asset"] + "USDT"
+        for p in account.get("positions", []):
+            sym = p["symbol"]
             if sym in UNIVERSE:
-                qty = float(balance["free"]) + float(balance["locked"])
-                if qty > 0:
+                qty = float(p["positionAmt"])
+                if qty != 0:
                     positions[sym] = qty
 
+        # Signed values: positive = long exposure, negative = short exposure
         values         = {sym: positions[sym] * tickers.get(sym, 0.0) for sym in UNIVERSE}
-        position_value = sum(values.values())
+        position_value = sum(abs(v) for v in values.values())  # gross exposure
 
         return {
             "positions":      positions,
             "prices":         tickers,
             "values":         values,
             "position_value": position_value,
+            "wallet_balance": wallet_balance,
+            "unrealized_pnl": unrealized_pnl,
         }
     except Exception:
         return None
@@ -199,7 +208,7 @@ with st.sidebar:
     st.header("📊 Crypto Dashboard")
     section = st.radio(
         "Section",
-        ["📊 Backtest Analysis", "🟢 Live Trading (Testnet)", "📈 Strategy Monitor"],
+        ["📊 Backtest Analysis", "🟢 Live Trading (Futures)", "📈 Strategy Monitor"],
         index=0,
     )
     st.markdown("---")
@@ -627,25 +636,33 @@ elif section == "🟢 Live Trading (Testnet)":
     # first run — it is never a hardcoded constant, so P&L is always meaningful.
     start_nav        = live.get("initial_nav")  # None until first reconciliation
 
-    # ── Live Binance balances (real quantities + real-time prices) ────────────
+    # ── Live Binance Futures balances (authoritative) ─────────────────────────
     binance = fetch_binance_live_balances()
     if binance:
         positions      = binance["positions"]
         last_prices    = binance["prices"]
         position_value = binance["position_value"]
-        # Live NAV = engine-tracked cash + positions at current market price
-        current_nav    = cash_usdt + position_value
-        nav_source     = "Binance live"
+        wallet_balance = binance["wallet_balance"]
+        unrealized_pnl = binance["unrealized_pnl"]
+        # Futures NAV = wallet balance + unrealized PnL (the true account equity)
+        current_nav    = wallet_balance + unrealized_pnl
+        cash_usdt      = wallet_balance  # override state value with Binance's authoritative figure
+        nav_source     = "Binance Futures"
     else:
         # Fallback to state file + cached OHLCV if Binance is unreachable
         positions      = live.get("positions", {})
         last_prices    = load_last_close_prices()
-        position_value = sum(positions.get(sym, 0) * last_prices.get(sym, 0) for sym in UNIVERSE)
+        entries        = position_entries
+        unrealized_pnl = sum(
+            positions.get(sym, 0) * (last_prices.get(sym, 0) - entries.get(sym, {}).get("entry_price", last_prices.get(sym, 0)))
+            for sym in UNIVERSE
+        )
+        position_value = sum(abs(positions.get(sym, 0)) * last_prices.get(sym, 0) for sym in UNIVERSE)
         if nav_history:
             nav_df_tmp  = pd.DataFrame(nav_history)
             current_nav = pd.to_numeric(nav_df_tmp["nav"]).iloc[-1]
         else:
-            current_nav = cash_usdt
+            current_nav = cash_usdt + unrealized_pnl
         nav_source = "state file (Binance unavailable)"
 
     open_positions = {sym: qty for sym, qty in positions.items() if qty != 0}
@@ -665,11 +682,12 @@ elif section == "🟢 Live Trading (Testnet)":
         pnl_str  = "—"
         pnl_delta = "Awaiting first reconciliation"
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Live NAV", f"${current_nav:,.2f}", help=f"Source: {nav_source}")
-    col2.metric("Cash (USDT)", f"${cash_usdt:,.2f}", help="Reconciled from Binance each cycle")
-    col3.metric("Open Positions", len(open_positions))
-    col4.metric(
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("Futures NAV", f"${current_nav:,.2f}", help=f"Wallet balance + unrealised PnL — Source: {nav_source}")
+    col2.metric("Wallet Balance", f"${cash_usdt:,.2f}", help="USDT wallet balance from Binance Futures (includes realised PnL)")
+    col3.metric("Unrealised PnL", f"${unrealized_pnl:+,.2f}", help="Sum of open position mark-to-market PnL")
+    col4.metric("Open Positions", len(open_positions))
+    col5.metric(
         "Total P&L",
         pnl_str,
         delta=pnl_delta,
@@ -718,19 +736,23 @@ elif section == "🟢 Live Trading (Testnet)":
                 last_price  = last_prices.get(sym)
                 mkt_value   = binance["values"].get(sym) if binance else (qty * last_price if last_price else None)
 
+                direction = 1 if qty >= 0 else -1
                 if entry_price and last_price:
-                    unreal_pct = (last_price - entry_price) / entry_price * 100
-                    unreal_usd = (last_price - entry_price) * qty
+                    # signed: positive = profit for this position direction
+                    unreal_pct = direction * (last_price - entry_price) / entry_price * 100
+                    unreal_usd = qty * (last_price - entry_price)
                 else:
                     unreal_pct = None
                     unreal_usd = None
 
+                side_label = "LONG" if qty > 0 else "SHORT"
                 rows.append({
                     "Symbol":         sym,
-                    "Qty":            round(qty, 6),
+                    "Side":           side_label,
+                    "Qty":            round(abs(qty), 6),
                     "Entry Price":    f"${entry_price:,.2f}" if entry_price else "—",
                     "Live Price":     f"${last_price:,.2f}" if last_price else "—",
-                    "Mkt Value":      f"${mkt_value:,.2f}" if mkt_value else "—",
+                    "Mkt Value":      f"${abs(mkt_value):,.2f}" if mkt_value is not None else "—",
                     "Unrealised P&L": f"{unreal_pct:+.2f}%" if unreal_pct is not None else "—",
                     "Unrealised $":   f"${unreal_usd:+,.2f}" if unreal_usd is not None else "—",
                     "Entry Date":     (entry.get("entry_date", "")[:10] if entry.get("entry_date") else "—"),
@@ -742,15 +764,23 @@ elif section == "🟢 Live Trading (Testnet)":
             st.info("No open positions after the last rebalance.")
 
     with col_right:
-        st.subheader("All Positions (Binance)")
+        st.subheader("All Positions (Binance Futures)")
         all_rows = []
         for sym, qty in positions.items():
             val = (binance["values"].get(sym, 0) if binance else qty * last_prices.get(sym, 0))
-            all_rows.append({"Symbol": sym, "Qty": round(qty, 6), "Value $": round(val, 2)})
+            all_rows.append({
+                "Symbol":  sym,
+                "Side":    "LONG" if qty > 0 else ("SHORT" if qty < 0 else "FLAT"),
+                "Qty":     round(abs(qty), 6),
+                "Notional $": round(abs(val), 2),
+            })
         all_df = pd.DataFrame(all_rows).set_index("Symbol")
-        st.dataframe(all_df.style.applymap(
-            lambda v: "color: #22c55e" if v > 0 else ("color: #ef4444" if v < 0 else ""),
-            subset=["Qty"],
+        st.dataframe(all_df.style.apply(
+            lambda col: [
+                "color: #22c55e" if v == "LONG" else ("color: #ef4444" if v == "SHORT" else "")
+                for v in col
+            ] if col.name == "Side" else [""] * len(col),
+            axis=0,
         ), width="stretch")
 
     # ── Stop / Profit tracking ────────────────────────────────────────────────
@@ -763,17 +793,29 @@ elif section == "🟢 Live Trading (Testnet)":
             ep  = entry.get("entry_price", 0)
             lp  = last_prices.get(sym, 0)
             pk  = entry.get("peak_price", ep)
-            pnl = (lp - ep) / ep * 100 if ep else None
-            dd  = (pk - lp) / pk * 100 if pk else None
+            qty = positions.get(sym, 0)
+            direction = 1 if qty >= 0 else -1
+            side_label = "LONG" if qty >= 0 else "SHORT"
+            pnl = direction * (lp - ep) / ep * 100 if ep else None
+            # Drawdown from peak (for longs: drop from high; for shorts: rise from low)
+            if pk and lp and qty > 0:
+                dd = (pk - lp) / pk * 100
+            elif pk and lp and qty < 0:
+                dd = (lp - pk) / pk * 100
+            else:
+                dd = None
+            sl_level = ep * (1 - STOP_LOSS_PCT) if qty > 0 else ep * (1 + STOP_LOSS_PCT) if ep else 0
+            tp_level = ep * (1 + TAKE_PROFIT_PCT) if qty > 0 else ep * (1 - TAKE_PROFIT_PCT) if ep else 0
             risk_rows.append({
                 "Symbol":         sym,
+                "Side":           side_label,
                 "Entry":          f"${ep:,.2f}",
-                "Peak":           f"${pk:,.2f}" if pk else "—",
+                "Peak/Trough":    f"${pk:,.2f}" if pk else "—",
                 "Current":        f"${lp:,.2f}" if lp else "—",
                 "P&L %":          f"{pnl:+.2f}%" if pnl is not None else "—",
-                "DD from Peak %": f"{dd:.2f}%" if dd is not None else "—",
-                "Stop Level":     f"${ep * (1 - STOP_LOSS_PCT):,.2f}" if ep else "—",
-                "TP Level":       f"${ep * (1 + TAKE_PROFIT_PCT):,.2f}" if ep else "—",
+                "DD from Ref %":  f"{dd:.2f}%" if dd is not None else "—",
+                "Stop Level":     f"${sl_level:,.2f}" if ep else "—",
+                "TP Level":       f"${tp_level:,.2f}" if ep else "—",
             })
         st.dataframe(pd.DataFrame(risk_rows).set_index("Symbol"), width="stretch")
         st.caption(
