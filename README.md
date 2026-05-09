@@ -1,7 +1,7 @@
 # QF623 / QF635 Crypto Algorithmic Trading System
 
 **SMU Quantitative Finance Group Project**  
-Multi-strategy algorithmic trading on Binance Testnet — backtest, live execution, and interactive dashboard.
+Multi-strategy algorithmic trading on Binance — backtest, live futures execution, and interactive dashboard.
 
 ---
 
@@ -34,7 +34,7 @@ Multi-strategy algorithmic trading on Binance Testnet — backtest, live executi
 
 ## 1. System Overview
 
-This system runs **10 independent alpha strategies** simultaneously. Each strategy produces a signal matrix (conviction in `[-1, +1]` per token per day). A meta-layer called the **Seasonality/Regime Selector** picks the 1–2 best-performing strategies for the current market regime and blends their signals. The blended signal drives a **Max-Sharpe portfolio optimizer** that outputs target weights. A live engine translates weight changes into real Binance Testnet orders.
+This system runs **10 independent alpha strategies** simultaneously. Each strategy produces a signal matrix (conviction in `[-1, +1]` per token per day). A meta-layer called the **Seasonality/Regime Selector** picks the 1–2 best-performing strategies for the current market regime and blends their signals. The blended signal drives a **Max-Sharpe portfolio optimizer** that outputs target weights. A live engine translates weight changes into real Binance Futures Demo orders — including real short positions.
 
 In parallel, all 10 strategies run as **hypothetical paper portfolios** whose live P&L feeds back into the strategy selector — so the system learns which strategies are working *right now* and tilts toward them automatically.
 
@@ -45,10 +45,11 @@ Market Data → 10 Strategies → Signals → Selector (Regime + Live P&L) → O
 ```
 
 **Key design decisions:**
-- **Spot testnet only** — `PAPER_TRADING = True` is hardcoded as the default; no real funds at risk
+- **Futures Demo Trading** — `PAPER_TRADING = True` is hardcoded as the default; virtual funds on `testnet.binancefuture.com`, real market prices
+- **Long and short** — futures perpetuals allow real short positions; live engine uses `long_short=True`
 - **Signal-driven, not clock-driven** — orders only fire when signal weight delta exceeds `REBALANCE_THRESHOLD`
 - **Zero look-ahead** — signals are shifted 1 day before entering the optimizer; ML model trained on strictly past data
-- **No Binance USDT balance for sizing** — testnet gives ~$100k fake USDT; we track cash internally through actual order fills
+- **Binance-authoritative balances** — wallet balance and positions reconciled from Binance Futures every cycle; `initial_nav` stamped once from the real account equity on first run
 
 ---
 
@@ -87,12 +88,13 @@ Market Data → 10 Strategies → Signals → Selector (Regime + Live P&L) → O
         │                                                   │
         │  APScheduler                                      │
         │  ├── price_monitor_job (every 60s)                │
-        │  │     Poll prices → check stop/TP → exit         │
+        │  │     Poll futures prices → check stop/TP → exit │
         │  └── signal_rebalance_job (every 1 min)           │
         │        Fetch data → recompute signals →           │
+        │        reconcile Binance Futures account →        │
         │        update hypotheticals → select strategy →   │
         │        optimize weights → compare to live →       │
-        │        execute orders if delta > threshold        │
+        │        execute futures orders if delta > threshold │
         │                                                   │
         │  State: results/live_state.json (atomic writes)   │
         └───────────────────────────────────────────────────┘
@@ -103,9 +105,11 @@ Market Data → 10 Strategies → Signals → Selector (Regime + Live P&L) → O
         │                                                   │
         │  streamlit run dashboard.py                       │
         │  ├── Backtest Analysis tab                        │
-        │  └── Live Trading tab                             │
-        │        Reads live_state.json (30s TTL)            │
-        │        Fetches live positions from Binance API    │
+        │  ├── Live Trading (Futures) tab                   │
+        │  │     Reads live_state.json (30s TTL)            │
+        │  │     Fetches live positions from Binance        │
+        │  │     Futures API (wallet balance + positions)   │
+        │  └── Strategy Monitor tab                         │
         └───────────────────────────────────────────────────┘
 ```
 
@@ -117,13 +121,13 @@ Market Data → 10 Strategies → Signals → Selector (Regime + Live P&L) → O
 crypto_algo/
 ├── main.py                        ← Master entrypoint (argparse)
 ├── dashboard.py                   ← Streamlit dashboard
-├── Binance test.py                ← Standalone Binance balance checker
+├── debug_futures.py               ← Futures API connectivity diagnostic
 ├── requirements.txt
 ├── Binance.env                    ← API keys (gitignored)
 │
 ├── config/
 │   ├── settings.py                ← ALL tuneable parameters
-│   └── client.py                  ← Dual client: real data / testnet orders
+│   └── client.py                  ← Dual client: real data / demo futures orders
 │
 ├── data/
 │   ├── ingestion.py               ← OHLCV, funding rates, Fear & Greed fetch
@@ -154,7 +158,7 @@ crypto_algo/
 │   └── reporting.py               ← Console tables + CSV/JSON output
 │
 ├── results/                       ← Auto-generated (gitignored)
-│   ├── live_state.json            ← Live positions, cash, NAV history
+│   ├── live_state.json            ← Live positions, wallet balance, NAV history
 │   ├── strategy_metrics.json
 │   ├── portfolio_returns.csv
 │   └── ...
@@ -168,8 +172,8 @@ crypto_algo/
 
 ### Prerequisites
 - Python 3.10+
-- A Binance account (for real market data)
-- A Binance Testnet account (for paper trading orders)
+- A Binance account with a real API key (for market data)
+- A Binance Demo Trading account with futures-enabled API key (for paper trading orders)
 
 ### Local Setup
 
@@ -205,7 +209,7 @@ pip install -r requirements.txt
 nano Binance.env
 
 # Run in background with tmux
-tmux new-session -d -s crypto "python main.py --mode full"
+tmux new-session -d -s crypto "python3 main.py --mode full"
 ```
 
 ---
@@ -224,19 +228,26 @@ BINANCE_DEMO_API_SECRET=your_demo_trading_secret_here
 **Why two sets of keys?**
 | Client | Purpose | Key source |
 |--------|---------|-----------|
-| Real Binance | Market data (OHLCV, tickers, funding rates) — read-only | binance.com API management |
-| Demo Trading | Order placement, account queries — virtual money, real prices | binance.com Paper Trading section |
+| Real Binance | Market data (OHLCV, tickers, funding rates) — read-only | binance.com → API Management |
+| Demo Trading | Futures order placement, account balance queries — virtual money | binance.com → Demo Trading → API Management |
 
-- Get demo trading keys from your Binance account → Paper Trading → API Management
-- Demo trading uses the real Binance API endpoint (`api.binance.com`) — unlike testnet, prices are live
-- The real API key only needs read permissions — no trading permissions required
-- The system **always** uses demo trading for orders when `PAPER_TRADING = True` (the default)
+**Important — Futures endpoint:**
+- Binance Demo Trading Futures routes through `testnet.binancefuture.com`, **not** `fapi.binance.com`
+- The demo client uses `testnet=True` in python-binance, which sets the futures URL correctly
+- Market data (OHLCV, prices) always comes from the real client at `api.binance.com` — unaffected
+- The demo API key must have **Enable Futures** ticked in Binance API settings
 
 **How the dual client works (`config/client.py`):**
 ```python
-get_client(for_trading=False)  # → real Binance (market data)
-get_client(for_trading=True)   # → testnet (orders, account balance)
+get_client(for_trading=False)  # → real Binance (market data, read-only)
+get_client(for_trading=True)   # → demo futures (orders, account balance)
 ```
+
+**Verifying connectivity:**
+```bash
+source venv/bin/activate && python3 debug_futures.py
+```
+This checks both endpoints and prints your wallet balance. If `futures_account` fails, check that "Enable Futures" is ticked on the demo API key.
 
 ---
 
@@ -244,22 +255,22 @@ get_client(for_trading=True)   # → testnet (orders, account balance)
 
 ```bash
 # Run full backtest only (no live trading)
-python main.py --mode backtest
+python3 main.py --mode backtest
 
 # Force re-download of all market data (ignore parquet cache)
-python main.py --mode backtest --no-cache
+python3 main.py --mode backtest --no-cache
 
-# Start live trading on testnet (runs backtest first, then goes live)
-python main.py --mode live
+# Start live futures trading (runs backtest first, then goes live)
+python3 main.py --mode live
 
 # Backtest + immediately launch live engine
-python main.py --mode full
+python3 main.py --mode full
 
 # Fire one live rebalance immediately on startup (don't wait for scheduler)
-python main.py --mode live --run-now
+python3 main.py --mode live --run-now
 
 # Print current positions and NAV from state file
-python main.py --mode report
+python3 main.py --mode report
 
 # Launch the interactive dashboard (separate terminal)
 streamlit run dashboard.py
@@ -269,11 +280,12 @@ streamlit run dashboard.py
 1. Fetches OHLCV data for all 12 tokens (from cache if fresh)
 2. Fetches funding rates and Fear & Greed index
 3. Generates signals for all 10 strategies
-4. Runs walk-forward backtest for each strategy
+4. Runs walk-forward backtest for each strategy (IS and OOS split)
 5. Computes regime + monthly seasonality scores
 6. Runs factor attribution
 7. Saves all results to `results/`
-8. Starts the APScheduler live engine (blocking — keeps running until Ctrl+C)
+8. Sets leverage for all universe symbols via Binance Futures API
+9. Starts the APScheduler live engine (blocking — keeps running until Ctrl+C)
 
 ---
 
@@ -375,7 +387,7 @@ All strategies live in `strategies/alpha.py` and inherit from `BaseStrategy`. Ea
 - 21-day rolling skewness
 - Vol ratio (10d vol / 21d vol) — captures regime changes
 
-**Strict no-look-ahead:** The model is trained on a rolling 180-day window ending at day `t-1` and predicts day `t`. In backtest, this means predictions are always out-of-sample.
+**Strict no-look-ahead (walk-forward):** The model retrains every 30 days. For each prediction at index `i`, the model is trained on `[i - train_window, i-1]` only — the last row of the training window is excluded from both X_train and y_train to prevent target leakage. Predictions are always fully out-of-sample.
 
 **Key parameters:**
 - `feature_lookbacks = [1, 3, 5, 10, 21]`
@@ -427,7 +439,7 @@ All strategies live in `strategies/alpha.py` and inherit from `BaseStrategy`. Ea
 
 ## 8. How Signals Become Orders
 
-This is the full pipeline from a strategy's output to an actual Binance order.
+This is the full pipeline from a strategy's output to an actual Binance Futures order.
 
 ### Step 1 — Signal generation
 Each strategy outputs a float in `[-1, +1]` per token. This is conviction strength — not just direction.
@@ -440,46 +452,47 @@ blended_signal = Σ (strategy_weight × strategy_signal) / total_weight
 The blended signal is clipped to `[-1, +1]`.
 
 ### Step 3 — Weight conversion (`_signal_to_weights`)
-Signals are converted to portfolio weights:
-- Only the top 6 positive signals (by strength) are used for live long positions
-- Negative signals are ignored in live trading (spot testnet cannot short)
-- Weights are proportional to signal strength
+Signals are converted to portfolio weights with `long_short=True` (futures supports real shorts):
+- Top 6 positive signals → long positions (weights > 0)
+- Top 6 negative signals → short positions (weights < 0)
+- Long and short each get up to 50% of gross exposure when both sides are present
 - Any token exceeding `MAX_POSITION_SIZE = 20%` is capped; the excess is redistributed
 
 Example:
 ```
-Signals:  BTC=0.8, SOL=0.4, ETH=0.3
-Proportional: BTC gets 8/15 = 53%, SOL=27%, ETH=20%
-After cap:    BTC capped at 20%, remainder redistributed to SOL/ETH
+Signals:  BTC=0.8, SOL=0.4, ETH=-0.6
+Long budget: 50% → BTC: 33%, SOL: 17%
+Short budget: 50% → ETH: -50% (capped at -20%, excess redistributed)
 ```
 
-### Step 4 — Price fetch (live ticker, not OHLCV)
+### Step 4 — Price fetch (live futures ticker)
 ```python
-client.get_symbol_ticker(symbol=sym)["price"]
+client.futures_symbol_ticker()  # returns live mark prices for all symbols
 ```
-This is the real-time mid price from Binance at the moment of rebalance — not the stale daily close from the parquet cache.
+Real-time prices from Binance Futures at the moment of rebalance — not the stale daily close from the parquet cache.
 
 ### Step 5 — Delta computation (`execute_rebalance`)
 ```
-delta_weight = target_weight - current_weight (computed from actual positions)
-delta_usdt   = delta_weight × current_NAV
-qty          = delta_usdt / live_price
-qty          = rounded down to Binance lot-size step
+current_w[sym]  = qty[sym] × price / NAV   (signed: negative for shorts)
+delta_weight    = target_weight - current_weight
+delta_usdt      = delta_weight × NAV
+qty             = delta_usdt / live_price
+qty             = rounded down to Binance futures lot-size step
 ```
 
 ### Step 6 — Order placement
-All orders are `MARKET` type. BUY orders are capped by available cash (with a 0.1% buffer for fees). SELL orders reduce or close the position.
+All orders are `MARKET` type via `futures_create_order()`. Exit orders use `reduceOnly=True` to prevent accidental position reversal.
 
 Order flow:
-- `delta_usdt > 0` → BUY
-- `delta_usdt < 0` → SELL
+- `delta_w > 0` → BUY (open/add long, or close short)
+- `delta_w < 0` → SELL (open/add short, or close long)
 - `|delta_usdt| < MIN_ORDER_USDT ($11)` → skip (Binance minimum notional)
 
 ### Step 7 — State update
 After each fill, the state is updated:
-- `positions[sym]` += qty (BUY) or -= qty (SELL)
-- `cash_usdt` -= cost (BUY) or += proceeds (SELL)
-- `position_entries[sym]` recorded with entry price, date, peak price
+- `positions[sym]` updated with new signed quantity (positive=long, negative=short)
+- `cash_usdt` updated with realized P&L on closing trades
+- `position_entries[sym]` recorded with entry price, date, peak/trough price
 - Trade logged to `trade_log` with P&L
 
 ---
@@ -501,6 +514,14 @@ weights_lagged = weights.shift(1)       # T+1 execution
 period_returns = (weights_lagged * returns)  # T+1 → T+2 returns
 ```
 
+### Train / Test Split
+```
+In-sample:     BACKTEST_START (2023-01-01) → BACKTEST_TEST_START (2025-01-01)
+Out-of-sample: BACKTEST_TEST_START (2025-01-01) → today
+```
+
+All metrics (Sharpe, CAGR, etc.) are reported for **full period**, **in-sample**, and **out-of-sample** separately. The IS/OOS comparison is shown in the dashboard under Backtest Analysis. Out-of-sample performance is the honest evaluation — in-sample results may reflect overfitting.
+
 ### Transaction costs
 ```
 Net return = gross return - transaction_cost
@@ -518,12 +539,12 @@ cost = |Δweight| × TRANSACTION_COST_BP / 10000
 | Calmar | `CAGR / |max_drawdown|` |
 | CAGR | `(final_NAV / initial_NAV)^(1/years) - 1` |
 | Win Rate | Fraction of days with positive return |
-| Best/Worst Day P&L | In USDT from $10k starting capital |
+| Best/Worst Day P&L | In USDT from $10k hypothetical starting capital |
 
 All annualization uses **365** (crypto markets never close).
 
 ### Walk-forward validation
-The ML strategy uses a strict walk-forward design: for each prediction date `t`, the model is trained on `[t - train_window, t-1]` and predicts `t` only. This is enforced in `MLSignalStrategy.generate_signals()`. Other strategies are fully causal by construction (all lookbacks use `.shift()` to avoid touching future data).
+The ML strategy uses a strict walk-forward design: the model retrains every 30 days and for each prediction at index `i`, trains only on `[i - train_window, i-1]`. The last row of the training window is excluded from both X and y to prevent target leakage. Other strategies are fully causal by construction (all lookbacks use `.shift()` to avoid touching future data).
 
 ---
 
@@ -636,15 +657,15 @@ Nav history is capped at 2880 entries (2 days × 1440 minutes) to prevent the st
 
 ### Loop 1: Price Monitor (`price_monitor_job`)
 - **Frequency:** Every `PRICE_MONITOR_SECS = 60` seconds
-- **Purpose:** Poll prices for open positions and immediately close any position that breaches a risk limit
+- **Purpose:** Poll futures prices for open positions and immediately close any position that breaches a risk limit
 - **Does NOT rebalance** — purely a safety mechanism
 
-Checks in order:
-1. Hard stop loss: `current_price < entry_price × (1 - STOP_LOSS_PCT)`
-2. Take profit: `current_price > entry_price × (1 + TAKE_PROFIT_PCT)`
-3. Trailing stop: `(peak_price - current_price) / peak_price > TRAILING_STOP_PCT`
+Checks in order (direction-aware for longs and shorts):
+1. Hard stop loss: `signed_pct ≤ -STOP_LOSS_PCT`
+2. Take profit: `signed_pct ≥ TAKE_PROFIT_PCT`
+3. Trailing stop: for longs — drop from peak price; for shorts — rise from trough price
 
-Also prints a heartbeat log every 30 seconds showing NAV, cash, and per-position P&L.
+Also prints a heartbeat log every 30 seconds showing NAV, wallet balance, and per-position P&L.
 
 ### Loop 2: Signal Recompute + Conditional Rebalance (`signal_rebalance_job`)
 - **Frequency:** Every `SIGNAL_RECOMPUTE_MINS = 1` minute
@@ -654,12 +675,13 @@ Steps:
 1. Fetch latest OHLCV data (no cache — always fresh)
 2. Recompute signals for all 10 strategies
 3. Snapshot latest signals to state (dashboard reads these)
-4. Fetch current prices
-5. Update all 10 hypothetical paper portfolios
-6. Select active strategies (regime + live P&L)
-7. Compute new target weights for live portfolio
-8. Compare new weights to actual current positions
-9. If `Σ|Δweight| > REBALANCE_THRESHOLD (3%)` → execute orders; else skip
+4. Fetch current futures prices
+5. **Reconcile with Binance Futures** — sync positions (signed qty), wallet balance, stamp `initial_nav` on first cycle
+6. Update all 10 hypothetical paper portfolios
+7. Select active strategies (regime + live P&L)
+8. Compute new target weights for live portfolio (long and short)
+9. Compare new weights to actual current positions
+10. If `Σ|Δweight| > REBALANCE_THRESHOLD (3%)` → execute futures orders; else skip
 
 ### Why signal-driven (not clock-driven)?
 If BTC surges 10% at 3am, the system rebalances within 1 minute regardless of schedule. If the market is flat, no unnecessary trading occurs even when the scheduler fires.
@@ -669,11 +691,11 @@ If BTC surges 10% at 3am, the system rebalances within 1 minute regardless of sc
 
 ```json
 {
-  "positions":        {"BTCUSDT": 0.012345, "ETHUSDT": 0.5, ...},
+  "positions":        {"BTCUSDT": 0.012345, "ETHUSDT": -0.5, ...},
   "cash_usdt":        7234.56,
-  "initial_nav":      10000.0,
+  "initial_nav":      10802.74,
   "nav_history":      [{"date": "...", "nav": 10234.56}, ...],
-  "current_weights":  {"BTCUSDT": 0.20, ...},
+  "current_weights":  {"BTCUSDT": 0.20, "ETHUSDT": -0.15, ...},
   "position_entries": {"BTCUSDT": {"entry_price": 65000, "entry_date": "...", "peak_price": 66000}},
   "trade_log":        [{"time": "...", "symbol": "BTCUSDT", "side": "BUY", "qty": 0.012, ...}],
   "active_strategies": ["momentum", "cross_sectional_momentum"],
@@ -683,14 +705,18 @@ If BTC surges 10% at 3am, the system rebalances within 1 minute regardless of sc
 }
 ```
 
-### Bootstrapping on fresh start (no state file)
-When `live_state.json` doesn't exist (e.g., after deleting a corrupted state or on a new server), `load_state()` calls `_bootstrap_from_binance()`:
-1. Reads actual token quantities from the Binance account (real positions, not fake USDT)
-2. Computes position value at current market prices
-3. Estimates cash = `PORTFOLIO_USDT - position_value`
-4. This allows the engine to pick up where it left off after a redeploy
+Note: `positions[sym]` is **signed** — positive = long, negative = short. `cash_usdt` = futures wallet balance (USDT), synced from Binance each cycle.
 
-**Why not read Binance USDT balance?** Binance Testnet accounts start with a large fake USDT balance (~$100k+). Using this would inflate NAV and cause over-sized orders. Only token quantities are read from Binance; USDT cash is always tracked internally.
+### Bootstrapping on fresh start (no state file)
+When `live_state.json` doesn't exist, `load_state()` calls `_bootstrap_from_binance()`:
+1. Reads actual signed position quantities from the Binance Futures account
+2. Reads entry prices for open positions from Binance (`entryPrice` field)
+3. Reads actual USDT wallet balance from the futures account
+4. Computes `initial_nav = wallet_balance + totalUnrealizedProfit`
+5. This allows the engine to pick up where it left off after a redeploy
+
+### NAV guard
+If NAV is zero or negative (unfunded futures wallet), the engine logs a CRITICAL message and calls `os._exit(1)` to stop the process immediately. Fund the Binance Futures Demo account and restart.
 
 ---
 
@@ -699,51 +725,57 @@ When `live_state.json` doesn't exist (e.g., after deleting a corrupted state or 
 ### Portfolio-level
 | Control | Value | Effect |
 |---------|-------|--------|
-| `PAPER_TRADING = True` | default | All orders go to testnet, never live |
+| `PAPER_TRADING = True` | default | All orders go to Demo Futures, never live |
 | `MAX_WEIGHT_SUM = 1.00` | 100% | Total gross leverage capped |
-| `MAX_POSITION_SIZE = 0.20` | 20% | Single token cap |
-| `MAX_LIVE_POSITIONS = 6` | 6 | Max simultaneous long positions |
+| `MAX_POSITION_SIZE = 0.20` | 20% | Single token cap (long or short) |
+| `MAX_LIVE_POSITIONS = 6` | 6 | Max simultaneous positions per side |
 | `MIN_ANNUALIZED_VOL = 0.03` | 3% | Portfolio vol floor (project spec) |
 | `REBALANCE_THRESHOLD = 0.03` | 3% | Min weight delta to trigger orders |
+| `FUTURES_LEVERAGE = 1` | 1x | Leverage set on all symbols at startup |
 
 ### Position-level
 | Control | Value | Trigger |
 |---------|-------|---------|
-| `STOP_LOSS_PCT = 0.02` | 2% | Exit if price drops 2% from entry |
-| `TAKE_PROFIT_PCT = 0.03` | 3% | Exit if price gains 3% from entry |
-| `TRAILING_STOP_PCT = 0.05` | 5% | Exit if price drops 5% from peak |
+| `STOP_LOSS_PCT = 0.02` | 2% | Exit if signed P&L drops below -2% |
+| `TAKE_PROFIT_PCT = 0.03` | 3% | Exit if signed P&L exceeds +3% |
+| `TRAILING_STOP_PCT = 0.05` | 5% | Exit if price moves 5% against peak/trough |
 | `USE_TRAILING_STOP = True` | on | Trailing stop is active |
 
 ### Execution safety
-- BUY size capped to `available_cash × 0.999` (0.1% buffer for fees)
+- Exit orders use `reduceOnly=True` — prevents an exit from accidentally reversing a position
 - `MIN_ORDER_USDT = 11` — Binance minimum notional + buffer
-- `get_symbol_info()` null-checked — skips delisted tokens gracefully
-- Quantity rounded down to Binance lot-size step to avoid precision errors
-
-### Why no cash reconciliation with Binance?
-The code deliberately never reads the Binance USDT balance to update `cash_usdt`. Testnet accounts come with ~$100k fake USDT. If the engine ever reads this and uses it as "available cash", it would size positions against a $100k+ NAV instead of $10k, causing massive over-sizing. Internal cash tracking through actual order fills is the only safe approach.
+- Futures LOT_SIZE step fetched from `futures_exchange_info()` — quantities rounded down to avoid precision errors
+- Quantity computation: `qty = abs(delta_usdt) / price` then rounded to step size
 
 ---
 
 ## 15. NAV & P&L Accounting
 
-### NAV calculation
+### NAV calculation (futures)
 ```
-NAV = cash_usdt + Σ(position_qty[sym] × current_price[sym])
+NAV = wallet_balance + unrealized_PnL
+unrealized_PnL = Σ qty[sym] × (current_price[sym] - entry_price[sym])
 ```
 
-This is computed fresh on every price poll using live ticker prices.
+This works correctly for both longs (qty > 0) and shorts (qty < 0). `wallet_balance` is the USDT balance in the Binance Futures account, which already includes all realized P&L from closed trades.
 
 ### P&L tracking
-- **Unrealized P&L** = `(current_price - entry_price) × qty` for each open position
-- **Realized P&L** = `(sell_price - entry_price) × qty_sold` logged at the time of each SELL
+- **Unrealized P&L** = `qty × (current_price - entry_price)` for each open position (signed correctly for longs/shorts)
+- **Realized P&L** = `direction × qty_closed × (close_price - entry_price)` logged at each trade
 - **Total P&L** = `current_NAV - initial_nav`
 
 ### `initial_nav`
-Stored in `live_state.json` as `10000.0` on first boot. This is the permanent baseline for total P&L calculation, anchored to starting capital even after `nav_history` is capped (which only keeps the last 2 days of data).
+Stamped once from the actual Binance Futures account equity (`wallet_balance + totalUnrealizedProfit`) on the first successful reconciliation cycle. **Never overwritten** after that — provides a stable P&L baseline even after restarts. Stored in `live_state.json`.
+
+### Binance reconciliation
+Every signal cycle, before any NAV or weight computation:
+1. `client.futures_account()` fetches `walletBalance` (USDT) and `positionAmt` (signed qty) for all universe symbols
+2. State is updated: `positions` ← signed Binance quantities; `cash_usdt` ← Binance wallet balance
+3. Entry prices for positions that were opened outside the current session are seeded from Binance's `entryPrice` field
+4. `initial_nav` is stamped if not yet set
 
 ### Profit reinvestment
-Yes — all profits stay in the portfolio. The system does not withdraw earnings. When NAV grows from $10k to $11k, the next rebalance sizes positions based on the $11k NAV, automatically compounding returns. `cash_usdt` accumulates from sells and dividends from price appreciation on exits.
+All profits stay in the portfolio. As wallet balance grows from realized gains, the next rebalance sizes positions based on the higher NAV, automatically compounding returns.
 
 ---
 
@@ -752,44 +784,49 @@ Yes — all profits stay in the portfolio. The system does not withdraw earnings
 **File:** `dashboard.py`  
 **Command:** `streamlit run dashboard.py`
 
-The dashboard has two main sections:
+The dashboard has three main sections selectable from the sidebar.
 
-### Backtest Analysis Tab
-- Strategy performance comparison (Sharpe, CAGR, Max Drawdown, Sortino, Calmar)
+### Backtest Analysis
+- Strategy performance comparison (Sharpe, CAGR, Max Drawdown, Sortino, Calmar) — full period, IS, OOS
 - Cumulative NAV curves for all strategies
+- In-sample vs Out-of-sample comparison table
 - Monthly seasonality heatmap (strategy × month)
 - Regime performance heatmap (strategy × bull/bear/sideways)
 - Factor attribution table (beta to BTC, ETH, vol, momentum, carry)
 - P&L summary
 
-### Live Trading Tab
+### Live Trading (Futures)
 
 **Active Strategy Banner** — shows which 1–2 strategies are currently active with blend percentages. Explained as: "70% Momentum + 30% Cross-Sectional Momentum" driven by backtest regime/seasonality score + 48h live rolling Sharpe.
 
-**NAV Metrics** — four headline numbers:
-- Live NAV (cash_usdt + Binance position values at current market price)
-- Cash USDT (engine-tracked, not from Binance USDT balance)
+**NAV Metrics** — five headline numbers:
+- Futures NAV (wallet balance + unrealized PnL from Binance Futures API)
+- Wallet Balance (USDT from Binance Futures — includes all realized PnL)
+- Unrealized PnL (sum of open position mark-to-market)
 - Open positions count
-- Total P&L (vs $10k starting capital)
+- Total P&L (vs `initial_nav` stamped from real Binance account on first cycle)
 
-**NAV History Chart** — time series from `nav_history` with the $10k starting capital baseline.
+**NAV History Chart** — time series from `nav_history` with the opening balance baseline.
 
 **Open Positions Table** — shows:
-- Token, quantity, entry price, live price (from Binance ticker), market value
-- Unrealized P&L (% and $)
+- Token, Side (LONG/SHORT), quantity, entry price, live price (from Binance Futures ticker), market value
+- Unrealized P&L % and $ — direction-corrected (shorts profit when price falls)
 - Entry date
 
-Position quantities and prices come directly from the Binance API (not state file) via `fetch_binance_live_balances()`. Cached for 30 seconds. Falls back to cached OHLCV + state file if Binance is unreachable.
+Position quantities and prices come directly from the Binance Futures API via `fetch_binance_live_balances()`. Cached for 30 seconds. Falls back to cached OHLCV + state file if Binance is unreachable.
 
-**Position Risk Tracker** — entry price, peak price, current price, P&L%, drawdown from peak, stop-loss and take-profit levels for each open position.
+**Position Risk Tracker** — entry price, peak/trough reference, current price, signed P&L%, drawdown from reference, stop-loss and take-profit levels (correct direction for both longs and shorts).
 
 **Signal Heatmap** — a strategies × tokens matrix showing each strategy's current signal strength. Green = long, Red = short, Grey = neutral. Active strategies marked with ★.
 
-**Live Trading History** — actual orders placed on testnet, color-coded (green BUY, red SELL), with realized P&L for sells.
+**Live Trading History** — actual orders placed on Binance Futures Demo, color-coded (green BUY, red SELL), with realized P&L for closing trades.
 
 **Hypothetical Strategy Competition** — all 10 strategies running as paper portfolios. Ranked by 7-day return. Each shows its own NAV curve, current weights, trade history, and realized P&L. This is how the live feedback loop is visualized.
 
 **Auto-refresh:** Dashboard reads state every 30 seconds. Binance balance data also cached 30 seconds.
+
+### Strategy Monitor
+Signal snapshots, regime analysis, and seasonality data for all 10 strategies.
 
 ### JSON corruption recovery
 If `live_state.json` is corrupted (rare — only if the server crashes mid-write), the dashboard uses `json.JSONDecoder().raw_decode()` to recover the first valid JSON object from the file. Atomic writes (`.tmp` → rename) prevent this in normal operation.
@@ -878,6 +915,7 @@ All parameters are in `config/settings.py`. Never hardcode values in strategy fi
 |-----------|-------|---------|
 | `KLINE_INTERVAL` | `"1d"` | Daily bars for backtest |
 | `BACKTEST_START` | `"2023-01-01"` | Backtest start (post-LUNA/FTX) |
+| `BACKTEST_TEST_START` | `"2025-01-01"` | Out-of-sample period start |
 | `BACKTEST_END` | `None` | None = today |
 | `CACHE_EXPIRY_HOURS` | `6` | Re-fetch if cache older than 6h |
 | `MIN_DAILY_VOLUME_USDT` | `10_000_000` | Liquidity filter |
@@ -895,23 +933,24 @@ All parameters are in `config/settings.py`. Never hardcode values in strategy fi
 ### Position risk
 | Parameter | Value | Meaning |
 |-----------|-------|---------|
-| `STOP_LOSS_PCT` | `0.02` | 2% hard stop |
-| `TAKE_PROFIT_PCT` | `0.03` | 3% take profit |
-| `TRAILING_STOP_PCT` | `0.05` | 5% trail from peak |
+| `STOP_LOSS_PCT` | `0.02` | 2% hard stop (direction-aware) |
+| `TAKE_PROFIT_PCT` | `0.03` | 3% take profit (direction-aware) |
+| `TRAILING_STOP_PCT` | `0.05` | 5% trail from peak/trough |
 | `USE_TRAILING_STOP` | `True` | Trailing stop enabled |
 
 ### Live engine
 | Parameter | Value | Meaning |
 |-----------|-------|---------|
-| `PAPER_TRADING` | `True` | Testnet only |
+| `PAPER_TRADING` | `True` | Demo Futures only (never live) |
+| `FUTURES_LEVERAGE` | `1` | Leverage set on all symbols at startup |
 | `ORDER_TYPE` | `"MARKET"` | Market orders |
-| `SLIPPAGE_BP` | `5` | 5 bps assumed slippage (backtest) |
-| `PORTFOLIO_USDT` | `10_000` | Starting capital |
+| `SLIPPAGE_BP` | `5` | 5 bps assumed slippage (backtest only) |
+| `PORTFOLIO_USDT` | `10_000` | Hypothetical paper portfolio baseline only — live account capital read from Binance |
 | `MIN_ORDER_USDT` | `11` | Minimum order value |
 | `SIGNAL_RECOMPUTE_MINS` | `1` | Signal recompute frequency |
 | `PRICE_MONITOR_SECS` | `60` | Stop/TP check frequency |
 | `REBALANCE_THRESHOLD` | `0.03` | Minimum Σ\|Δweight\| to trade |
-| `MAX_LIVE_POSITIONS` | `6` | Max simultaneous longs |
+| `MAX_LIVE_POSITIONS` | `6` | Max simultaneous positions per side |
 
 ---
 
@@ -921,16 +960,16 @@ All outputs written to `results/` after a backtest run.
 
 | File | Format | Content |
 |------|--------|---------|
-| `strategy_metrics.json` | JSON | Sharpe, Sortino, CAGR, max drawdown, Calmar, win rate per strategy |
+| `strategy_metrics.json` | JSON | Nested: full / in_sample / out_of_sample metrics per strategy |
 | `portfolio_returns.csv` | CSV | Daily return series, one column per strategy |
-| `cumulative_returns.csv` | CSV | Cumulative NAV from $10k, one column per strategy |
+| `cumulative_returns.csv` | CSV | Cumulative NAV, one column per strategy |
 | `monthly_seasonality.csv` | CSV | Average monthly Sharpe per strategy (index=month 1-12) |
 | `regime_performance.csv` | CSV | Sharpe per strategy per regime (bull/bear/sideways) |
 | `attribution_report.csv` | CSV | OLS betas, alpha, R², IR per strategy |
 | `seasonality_report.csv` | CSV | Combined regime + monthly report |
-| `nav_history_export.csv` | CSV | Live NAV history export |
+| `nav_history_export.csv` | CSV | Live NAV history export (written on shutdown) |
 | `pnl_summary.csv` | CSV | P&L breakdown per strategy |
-| `live_state.json` | JSON | Live positions, cash, trades, NAV history, hypotheticals |
+| `live_state.json` | JSON | Live positions (signed), wallet balance, trades, NAV history, hypotheticals |
 
 ---
 
@@ -946,14 +985,20 @@ source venv/bin/activate
 
 # Create API key file
 cat > Binance.env << 'EOF'
-BINANCE_API_KEY=...
-BINANCE_API_SECRET=...
-BINANCE_TESTNET_API_KEY=...
-BINANCE_TESTNET_API_SECRET=...
+BINANCE_API_KEY=your_real_api_key
+BINANCE_API_SECRET=your_real_api_secret
+BINANCE_DEMO_API_KEY=your_demo_futures_key
+BINANCE_DEMO_API_SECRET=your_demo_futures_secret
 EOF
 
+# Verify futures connectivity before starting
+python3 debug_futures.py
+
+# Clear any stale results from previous runs
+rm -f results/*.csv results/*.json
+
 # Start live engine in tmux (keeps running after SSH disconnect)
-tmux new-session -d -s crypto "source venv/bin/activate && python main.py --mode full 2>&1 | tee logs/main.log"
+tmux new-session -d -s crypto "source venv/bin/activate && python3 main.py --mode full --run-now 2>&1 | tee logs/main.log"
 
 # Start dashboard in separate window
 tmux new-window -t crypto "source venv/bin/activate && streamlit run dashboard.py --server.port 8501"
@@ -965,25 +1010,22 @@ tmux new-window -t crypto "source venv/bin/activate && streamlit run dashboard.p
 cd /opt/crypto_algo && git pull
 # Restart the live engine to pick up code changes:
 tmux send-keys -t crypto C-c   # stop old session
-tmux send-keys -t crypto "python main.py --mode full" Enter
+tmux send-keys -t crypto "python3 main.py --mode full --run-now" Enter
 ```
 
 No need to delete `live_state.json` on a normal code update. The engine reads the state file and continues from where it left off.
 
 ### Resetting the live state (fresh start)
 
-Only do this if the state is corrupted or you want to start from $10k again:
+Only do this if the state is corrupted or you want a fresh baseline:
 
 ```bash
-# Backup first
-cp results/live_state.json results/live_state_backup_$(date +%Y%m%d).json
-
-# Delete and restart
-rm results/live_state.json
-python main.py --mode full
+# Delete all results and restart
+rm -f results/*.csv results/*.json
+python3 main.py --mode full --run-now
 ```
 
-On restart with no state file, the engine calls `_bootstrap_from_binance()` to read actual token positions from Binance and reconstruct state.
+On restart with no state file, the engine calls `_bootstrap_from_binance()` to read actual token positions and wallet balance from Binance Futures and reconstruct state. `initial_nav` is stamped from the real account equity on the first reconciliation cycle.
 
 ### Viewing live logs
 
@@ -999,13 +1041,13 @@ tmux attach -t crypto
 
 ## 22. Common Questions & Troubleshooting
 
-### Q: Why is NAV showing an impossibly high number (e.g., $109,000 from $10,000)?
-**A:** This was caused by a cash reconciliation bug that read the Binance Testnet's fake USDT balance (~$100k+) and used it as actual capital. This has been fixed — the engine no longer reads the Binance USDT balance for sizing. If you see inflated NAV in the dashboard, delete `live_state.json` and restart to reset from $10k.
+### Q: Why is NAV showing zero or stopping the engine immediately?
+**A:** The engine calls `os._exit(1)` if NAV is zero. This means the Binance Futures Demo wallet is unfunded or the futures API call failed. Run `python3 debug_futures.py` to check connectivity. If `futures_account` fails, verify the demo API key has "Enable Futures" ticked in Binance API settings.
 
 ### Q: The system hasn't traded in 3+ days — why is it just holding?
-**A:** This can have two causes:
+**A:** Two possible causes:
 1. `REBALANCE_THRESHOLD = 3%` — if the blended signal hasn't changed by at least 3% total weight, no orders fire. This is intentional to avoid churn.
-2. The delta comparison was using saved target weights instead of actual live positions. This bug (fixed) caused `delta = 0` permanently because the saved target always matched the new target even when actual positions differed.
+2. The delta comparison uses actual live positions (from Binance reconciliation) vs new target. If your positions already match the target, delta will be near zero.
 
 ### Q: How do I know which strategy is currently active?
 **A:** Check the Active Strategy Banner at the top of the Live Trading tab in the dashboard. It shows strategy names and blend percentages. You can also check `results/live_state.json` → `active_strategies` and `active_strategy_weights`.
@@ -1020,13 +1062,13 @@ tmux attach -t crypto
 **A:** No. `live_state.json` persists on disk. The engine reads it on startup and continues from the last known state. Only delete the state file if you want a true fresh start.
 
 ### Q: Do profits get reinvested?
-**A:** Yes. All profits stay in the portfolio. As NAV grows, the next rebalance sizes positions based on the new (higher) NAV, compounding returns automatically. There is no profit withdrawal mechanism.
+**A:** Yes. All profits stay in the portfolio. As the futures wallet balance grows from realized gains, the next rebalance sizes positions based on the higher NAV, compounding returns automatically.
 
 ### Q: What happens if a token gets delisted?
-**A:** The engine calls `get_symbol_info()` before placing any order. If the return is `None` (delisted/renamed), the token is skipped with a warning log. The strategy signal for that token should also degrade gracefully since its price history will stop updating.
+**A:** The engine fetches LOT_SIZE from `futures_exchange_info()` before placing any order. If a symbol is missing from the response, the token is skipped with a warning log. The strategy signal for that token should also degrade gracefully since its price history will stop updating.
 
 ### Q: Can this trade with real money?
-**A:** Only if you set `PAPER_TRADING = False` in `config/settings.py`. This should never be done without fully understanding the code. All current development and testing uses `PAPER_TRADING = True` which routes all orders to Binance Testnet (fake money).
+**A:** Only if you set `PAPER_TRADING = False` in `config/settings.py` and replace the demo client keys with live keys. This should never be done without fully understanding the code and the risks. All current development uses `PAPER_TRADING = True` which routes all orders to Binance Futures Demo (virtual money, real prices).
 
 ### Q: How accurate is the backtest?
 **A:** The backtest is realistic by design:
@@ -1034,26 +1076,22 @@ tmux attach -t crypto
 - 10 bps round-trip transaction costs
 - 5 bps slippage assumption
 - 180-day rolling covariance (not full-history, which would look-ahead in practice)
-- ML strategy uses strict walk-forward cross-validation
+- ML strategy uses strict walk-forward retraining every 30 days with no target leakage
+- In-sample / out-of-sample split at 2025-01-01 for honest evaluation
 
-Known limitations: daily bars mean intraday price impact is not modeled; funding cost for short positions is not subtracted in the live portfolio (spot testnet cannot short); corporate events (forks, airdrops) are ignored.
+Known limitations: daily bars mean intraday price impact is not modeled; funding costs for short positions are not subtracted in the backtest P&L; corporate events (forks, airdrops) are ignored.
 
 ### Q: What does the `--run-now` flag do?
 **A:** By default, the live engine waits until the next scheduled slot (every 1 minute). `--run-now` fires one rebalance immediately on startup before waiting for the scheduler. Useful for testing or after a long outage.
 
 ### Q: How do I check if the API keys are working?
-**A:** Run `python main.py --mode backtest` — the first thing it does is call `check_connectivity()` which pings both real Binance and testnet. If either fails, you'll see an error before any trading begins. You can also run `python "Binance test.py"` for a direct account balance check.
+**A:** Run `python3 debug_futures.py`. It checks both the real Binance connection (for market data) and the demo futures connection (for orders and account balance), and prints your wallet balance. Use this any time you suspect a connectivity issue.
 
 ### Q: The dashboard says "Binance unavailable" — what does that mean?
-**A:** `fetch_binance_live_balances()` failed to reach the Binance API. The dashboard automatically falls back to reading positions from the state file and prices from cached OHLCV parquet files. This fallback is clearly labeled in the UI. Check your API keys and network connectivity.
+**A:** `fetch_binance_live_balances()` failed to reach the Binance Futures API. The dashboard automatically falls back to reading positions from the state file and prices from cached OHLCV parquet files. This fallback is clearly labeled in the UI. Check your demo API key and run `python3 debug_futures.py` to diagnose.
 
 ### Q: Why is cash sometimes slightly off from what I expect?
-**A:** Cash is tracked through order fills: each BUY deducts cost, each SELL adds proceeds. Minor discrepancies can arise from:
-- Lot-size rounding (the engine buys slightly less than the target quantity)
-- 0.1% Binance fee (deducted from USDT on buys, from received tokens on sells)
-- The 0.1% cash buffer (`available_cash = state["cash_usdt"] × 0.999`)
-
-These differences are small (< 1%) and self-correct over time as the engine rebalances.
+**A:** Cash (`cash_usdt`) is the USDT wallet balance from Binance Futures, reconciled every cycle. Minor discrepancies between cycles can arise from lot-size rounding and fee deduction timing. These differences are small and self-correct on the next reconciliation.
 
 ### Q: How do I add a new strategy?
 1. Create a new class in `strategies/alpha.py` inheriting from `BaseStrategy`
@@ -1062,5 +1100,5 @@ These differences are small (< 1%) and self-correct over time as the engine reba
 4. Add the class to `get_all_strategies()` at the bottom of `alpha.py`
 5. The strategy automatically gets added to the backtest, hypothetical competition, and dashboard
 
-### Q: How do I change the starting capital?
-**A:** Change `PORTFOLIO_USDT = 10_000` in `config/settings.py` to the new amount, then delete `live_state.json` and restart. The dashboard's `STARTING_CAPITAL` constant must also match (it's defined as `10_000` at the top of `dashboard.py`).
+### Q: How do I change the leverage?
+**A:** Change `FUTURES_LEVERAGE = 1` in `config/settings.py`. The engine calls `futures_change_leverage()` for all 12 symbols at startup. Keep in mind that leverage above 1x amplifies both gains and losses and tightens effective stop-loss distances.

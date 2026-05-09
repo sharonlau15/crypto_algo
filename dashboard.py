@@ -232,7 +232,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.caption(f"Updated: {datetime.now().strftime('%H:%M:%S')}")
-    if section in ["🟢 Live Trading (Testnet)", "📈 Strategy Monitor"]:
+    if section in ["🟢 Live Trading (Futures)", "📈 Strategy Monitor"]:
         if st.button("🔄 Refresh live data"):
             st.cache_data.clear()
             st.rerun()
@@ -570,7 +570,7 @@ if section == "📊 Backtest Analysis":
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 2 — LIVE TRADING (DEMO)
 # ══════════════════════════════════════════════════════════════════════════════
-elif section == "🟢 Live Trading (Testnet)":
+elif section == "🟢 Live Trading (Futures)":
     st.title("🟢 Live Trading Monitor")
     st.markdown(
         '<span class="demo-badge">BINANCE DEMO TRADING — Virtual Money</span>',
@@ -944,9 +944,9 @@ elif section == "🟢 Live Trading (Testnet)":
 
         style = trades_df.style
         if "Side" in trades_df.columns:
-            style = style.applymap(_color_side, subset=["Side"])
+            style = style.map(_color_side, subset=["Side"])
         if "Realised P&L" in trades_df.columns:
-            style = style.applymap(_color_pnl, subset=["Realised P&L"])
+            style = style.map(_color_pnl, subset=["Realised P&L"])
 
         st.dataframe(style, width="stretch")
 
@@ -1007,7 +1007,7 @@ elif section == "📈 Strategy Monitor":
     if rows:
         summary_df = pd.DataFrame(rows).set_index("Strategy")
         st.dataframe(
-            summary_df.style.applymap(
+            summary_df.style.map(
                 lambda v: "color: #22c55e; font-weight: bold" if v == "★ LIVE" else "",
                 subset=["Active"],
             ),
@@ -1099,9 +1099,9 @@ elif section == "📈 Strategy Monitor":
 
             st.dataframe(
                 score_df.set_index("Strategy").style
-                    .applymap(_color_score, subset=["7-day Sharpe"])
-                    .applymap(lambda v: "color: #22c55e; font-weight: bold" if v == "★" else "", subset=["Currently Live"])
-                    .applymap(lambda v: "color: #f59e0b; font-weight: bold" if "CANDIDATE" in str(v) else "", subset=["Would Takeover"]),
+                    .map(_color_score, subset=["7-day Sharpe"])
+                    .map(lambda v: "color: #22c55e; font-weight: bold" if v == "★" else "", subset=["Currently Live"])
+                    .map(lambda v: "color: #f59e0b; font-weight: bold" if "CANDIDATE" in str(v) else "", subset=["Would Takeover"]),
                 width="stretch",
             )
             st.caption(
@@ -1273,13 +1273,13 @@ elif section == "📈 Strategy Monitor":
 
                     style = th_df.iloc[::-1].reset_index(drop=True).style
                     if "Side" in th_df.columns:
-                        style = style.applymap(
+                        style = style.map(
                             lambda v: "color: #22c55e; font-weight:bold" if v == "BUY"
                                       else ("color: #ef4444; font-weight:bold" if v == "SELL" else ""),
                             subset=["Side"],
                         )
                     if "Realized P&L" in th_df.columns:
-                        style = style.applymap(_color_pnl_hypo, subset=["Realized P&L"])
+                        style = style.map(_color_pnl_hypo, subset=["Realized P&L"])
                     st.dataframe(style, width="stretch")
                 else:
                     st.caption("No trades yet — appears after second signal cycle.")
