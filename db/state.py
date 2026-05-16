@@ -40,22 +40,24 @@ def load_state() -> dict | None:
             cur = conn.cursor()
 
             cur.execute("""
-                SELECT positions, cash_usdt, initial_nav, current_weights, last_run
+                SELECT positions, cash_usdt, initial_nav, current_weights, last_run,
+                       active_strategies, active_strategy_weights
                 FROM live_state WHERE id = 1
             """)
             row = cur.fetchone()
             if row is None:
                 return None  # signal to caller: no persisted state yet
 
-            positions, cash_usdt, initial_nav, current_weights, last_run = row
+            positions, cash_usdt, initial_nav, current_weights, last_run, \
+                active_strategies, active_strategy_weights = row
             state: dict = {
-                "positions":        positions or {sym: 0.0 for sym in UNIVERSE},
-                "cash_usdt":        float(cash_usdt or 0),
-                "initial_nav":      float(initial_nav) if initial_nav is not None else None,
-                "current_weights":  current_weights or {},
-                "last_run":         str(last_run) if last_run else None,
-                "active_strategies":  [],
-                "active_strategy_weights": {},
+                "positions":               positions or {sym: 0.0 for sym in UNIVERSE},
+                "cash_usdt":               float(cash_usdt or 0),
+                "initial_nav":             float(initial_nav) if initial_nav is not None else None,
+                "current_weights":         current_weights or {},
+                "last_run":                str(last_run) if last_run else None,
+                "active_strategies":       active_strategies if isinstance(active_strategies, list) else [],
+                "active_strategy_weights": active_strategy_weights if isinstance(active_strategy_weights, dict) else {},
                 "position_entries": {},
                 "nav_history":      [],
                 "trade_log":        [],
@@ -182,20 +184,25 @@ def save_state(state: dict):
             # Upsert core live_state row
             cur.execute("""
                 INSERT INTO live_state
-                    (id, positions, cash_usdt, initial_nav, current_weights, last_run)
-                VALUES (1, %s, %s, %s, %s, %s)
+                    (id, positions, cash_usdt, initial_nav, current_weights, last_run,
+                     active_strategies, active_strategy_weights)
+                VALUES (1, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
-                    positions       = EXCLUDED.positions,
-                    cash_usdt       = EXCLUDED.cash_usdt,
-                    initial_nav     = EXCLUDED.initial_nav,
-                    current_weights = EXCLUDED.current_weights,
-                    last_run        = EXCLUDED.last_run
+                    positions               = EXCLUDED.positions,
+                    cash_usdt               = EXCLUDED.cash_usdt,
+                    initial_nav             = EXCLUDED.initial_nav,
+                    current_weights         = EXCLUDED.current_weights,
+                    last_run                = EXCLUDED.last_run,
+                    active_strategies       = EXCLUDED.active_strategies,
+                    active_strategy_weights = EXCLUDED.active_strategy_weights
             """, (
                 json.dumps(state.get("positions", {})),
                 state.get("cash_usdt", 0),
                 state.get("initial_nav"),
                 json.dumps(state.get("current_weights", {})),
                 state.get("last_run"),
+                json.dumps(state.get("active_strategies", [])),
+                json.dumps(state.get("active_strategy_weights", {})),
             ))
 
             # Sync position_entries — delete and reinsert (small table, always current)

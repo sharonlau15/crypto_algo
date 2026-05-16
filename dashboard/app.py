@@ -34,6 +34,7 @@ from dashboard.data import (
     get_nav_history,
     get_portfolio_returns,
     get_strategy_metrics,
+    get_strategy_summary,
     get_trade_log,
     save_engine_controls,
 )
@@ -127,6 +128,17 @@ def _tab_live_overview() -> dbc.Container:
                 html.Div(id="engine-status-badge"),
             ]), className="mb-3", style=CARD_STYLE), width=2),
         ], className="mt-3"),
+
+        # ── Active strategy blend ─────────────────────────────────────────────
+        dbc.Row([
+            dbc.Col(
+                dbc.Card(dbc.CardBody([
+                    html.H6("Active Strategy Blend", className="text-muted mb-2"),
+                    html.Div(id="active-strategies-panel"),
+                ]), style=CARD_STYLE),
+                width=12, className="mb-3",
+            ),
+        ]),
 
         # ── NAV chart + Positions table ───────────────────────────────────────
         dbc.Row([
@@ -313,10 +325,62 @@ def _tab_risk_controls() -> dbc.Container:
 
 
 def _tab_strategy_performance() -> dbc.Container:
+    summary_cols = [
+        {"name": c, "id": c} for c in [
+            "strategy", "live_nav", "live_return_pct", "live_trades",
+            "sharpe", "sortino", "max_drawdown", "win_rate",
+        ]
+    ]
     return dbc.Container([
+        # ── Comparative NAV chart (all strategies) ────────────────────────────
+        dbc.Row([
+            dbc.Col(
+                dbc.Card(dbc.CardBody([
+                    html.H6("All Strategies — Hypothetical NAV", className="text-muted mb-2"),
+                    dcc.Graph(id="comparative-nav-chart", figure=_empty_fig(), style={"height": "360px"}),
+                ]), style=CARD_STYLE),
+                width=12, className="mb-3 mt-3",
+            ),
+        ]),
+
+        # ── Strategy summary table ────────────────────────────────────────────
+        dbc.Row([
+            dbc.Col(
+                dbc.Card(dbc.CardBody([
+                    html.H6("Strategy Summary", className="text-muted mb-2"),
+                    dash_table.DataTable(
+                        id="strategy-summary-table",
+                        columns=[
+                            {"name": "Strategy",       "id": "strategy"},
+                            {"name": "Live NAV ($)",   "id": "live_nav"},
+                            {"name": "Live Return %",  "id": "live_return_pct"},
+                            {"name": "Live Trades",    "id": "live_trades"},
+                            {"name": "Sharpe",         "id": "sharpe"},
+                            {"name": "Sortino",        "id": "sortino"},
+                            {"name": "Max DD",         "id": "max_drawdown"},
+                            {"name": "Win Rate (BT)",  "id": "win_rate"},
+                        ],
+                        data=[],
+                        style_header=TABLE_STYLE_HEADER,
+                        style_data=TABLE_STYLE_DATA,
+                        style_cell={"textAlign": "right", "padding": "4px 8px", "fontSize": "0.8rem"},
+                        style_cell_conditional=[{"if": {"column_id": "strategy"}, "textAlign": "left"}],
+                        style_data_conditional=[
+                            {"if": {"filter_query": "{live_return_pct} > 0"}, "color": "#28a745"},
+                            {"if": {"filter_query": "{live_return_pct} < 0"}, "color": "#dc3545"},
+                        ],
+                        sort_action="native",
+                        page_size=15,
+                    ),
+                ]), style=CARD_STYLE),
+                width=12, className="mb-3",
+            ),
+        ]),
+
+        # ── Per-strategy detail ───────────────────────────────────────────────
         dbc.Row([
             dbc.Col([
-                html.Label("Strategy", className="text-muted me-2"),
+                html.Label("Strategy Detail", className="text-muted me-2"),
                 dcc.Dropdown(
                     id="strategy-dropdown",
                     options=[],
@@ -324,13 +388,13 @@ def _tab_strategy_performance() -> dbc.Container:
                     clearable=False,
                     style={"backgroundColor": "#1a1a2e", "color": "black", "minWidth": "260px"},
                 ),
-            ], width=4, className="mb-3 mt-3"),
+            ], width=4, className="mb-3"),
         ]),
         dbc.Row([
             dbc.Col(
                 dbc.Card(dbc.CardBody([
                     html.H6("Hypothetical NAV", className="text-muted mb-2"),
-                    dcc.Graph(id="strategy-nav-chart", figure=_empty_fig(), style={"height": "340px"}),
+                    dcc.Graph(id="strategy-nav-chart", figure=_empty_fig(), style={"height": "300px"}),
                 ]), style=CARD_STYLE),
                 width=12, className="mb-3",
             ),
@@ -440,24 +504,25 @@ app.layout = dbc.Container([
 # ── Callback 1 — Live overview auto-refresh ───────────────────────────────────
 
 @app.callback(
-    Output("nav-value",            "children"),
-    Output("cash-value",           "children"),
-    Output("pnl-value",            "children"),
-    Output("pnl-value",            "style"),
-    Output("positions-count",      "children"),
-    Output("engine-status-badge",  "children"),
-    Output("nav-chart",            "figure"),
-    Output("positions-table",      "data"),
-    Output("positions-table",      "columns"),
-    Output("trades-table",         "data"),
-    Output("trades-table",         "columns"),
-    Output("last-updated-text",    "children"),
-    Output("kill-switch-banner",   "is_open"),
-    Output("kill-switch-badge",    "children"),
-    Output("kill-switch-badge",    "style"),
-    Output("override-badge",       "children"),
-    Output("override-badge",       "style"),
-    Output("kill-switch-card",     "style"),
+    Output("nav-value",               "children"),
+    Output("cash-value",              "children"),
+    Output("pnl-value",               "children"),
+    Output("pnl-value",               "style"),
+    Output("positions-count",         "children"),
+    Output("engine-status-badge",     "children"),
+    Output("nav-chart",               "figure"),
+    Output("positions-table",         "data"),
+    Output("positions-table",         "columns"),
+    Output("trades-table",            "data"),
+    Output("trades-table",            "columns"),
+    Output("last-updated-text",       "children"),
+    Output("kill-switch-banner",      "is_open"),
+    Output("kill-switch-badge",       "children"),
+    Output("kill-switch-badge",       "style"),
+    Output("override-badge",          "children"),
+    Output("override-badge",          "style"),
+    Output("kill-switch-card",        "style"),
+    Output("active-strategies-panel", "children"),
     # Current weights displayed next to override inputs
     *[Output(f"current-weight-{sym}", "children") for sym in UNIVERSE],
     Input("refresh-interval", "n_intervals"),
@@ -468,6 +533,7 @@ def update_live_tab(n_intervals):
     trades   = get_trade_log(limit=20)
     controls = get_engine_controls()
     prices   = get_current_prices()
+    metrics  = get_strategy_metrics()
 
     positions        = state.get("positions", {})
     cash_usdt        = state.get("cash_usdt", 0.0)
@@ -556,6 +622,40 @@ def update_live_tab(n_intervals):
     ov_text   = "ACTIVE"   if ov_active else "INACTIVE"
     ov_color  = {"color": "#ffc107", "fontWeight": "bold"} if ov_active else {"color": "#6c757d", "fontWeight": "bold"}
 
+    # Active strategies panel
+    active_strats  = state.get("active_strategies", [])
+    active_weights = state.get("active_strategy_weights", {})
+    win_rates      = {}
+    if not metrics.empty and "strategy" in metrics.columns and "win_rate" in metrics.columns:
+        win_rates = dict(zip(metrics["strategy"], metrics["win_rate"]))
+
+    if active_strats:
+        import pandas as _pd
+        rows = []
+        for strat in active_strats:
+            blend = active_weights.get(strat, 0) * 100
+            wr    = win_rates.get(strat)
+            wr_str  = f"{wr*100:.1f}%" if wr is not None and not _pd.isna(wr) else "—"
+            wr_color = "#28a745" if (wr or 0) > 0.5 else "#ffc107"
+            rows.append(html.Tr([
+                html.Td(strat.replace("_", " ").title(),
+                        style={"color": "white", "paddingRight": "24px"}),
+                html.Td(f"{blend:.1f}%",
+                        style={"color": "#00b4d8", "textAlign": "right", "paddingRight": "24px"}),
+                html.Td(wr_str,
+                        style={"color": wr_color, "textAlign": "right"}),
+            ]))
+        active_panel = html.Table([
+            html.Thead(html.Tr([
+                html.Th("Strategy",  style={"color": "#aaa", "paddingRight": "24px"}),
+                html.Th("Blend",     style={"color": "#aaa", "textAlign": "right", "paddingRight": "24px"}),
+                html.Th("Win Rate (BT)", style={"color": "#aaa", "textAlign": "right"}),
+            ])),
+            html.Tbody(rows),
+        ])
+    else:
+        active_panel = html.Span("No active strategies yet", className="text-muted")
+
     # Current weights for override table
     weight_displays = []
     for sym in UNIVERSE:
@@ -581,6 +681,7 @@ def update_live_tab(n_intervals):
         ov_text,
         ov_color,
         ks_card_style,
+        active_panel,
         *weight_displays,
     )
 
@@ -816,6 +917,48 @@ def update_backtest_tab(n_intervals):
         fig = _empty_fig("Cumulative Returns (no data)")
 
     return metrics_data, metrics_cols, fig
+
+
+# ── Callback 9 — Strategy performance overview ────────────────────────────────
+
+STRAT_COLOURS = [
+    "#00b4d8", "#f4a261", "#2ec4b6", "#e71d36", "#ff9f1c",
+    "#6a0572", "#48cae4", "#d62828", "#023e8a", "#80b918",
+    "#f72585", "#4361ee",
+]
+
+@app.callback(
+    Output("comparative-nav-chart",  "figure"),
+    Output("strategy-summary-table", "data"),
+    Input("refresh-interval", "n_intervals"),
+)
+def update_strategy_overview(n_intervals):
+    nav_df   = get_hypothetical_nav()
+    summary  = get_strategy_summary()
+
+    # Comparative NAV chart
+    fig = go.Figure()
+    if not nav_df.empty:
+        strategies = nav_df["strategy"].unique()
+        for i, strat in enumerate(strategies):
+            s = nav_df[nav_df["strategy"] == strat]
+            fig.add_trace(go.Scatter(
+                x=s["recorded_at"],
+                y=s["nav"],
+                mode="lines",
+                name=strat.replace("_", " ").title(),
+                line={"color": STRAT_COLOURS[i % len(STRAT_COLOURS)], "width": 1.5},
+            ))
+    fig.update_layout(
+        title="Hypothetical NAV — All Strategies",
+        legend={"orientation": "h", "y": -0.15, "font": {"size": 10}},
+        **CHART_LAYOUT,
+    )
+
+    # Summary table
+    summary_data = summary.to_dict("records") if not summary.empty else []
+
+    return fig, summary_data
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

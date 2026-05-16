@@ -69,19 +69,22 @@ def get_live_state() -> dict:
           position_entries (dict keyed by symbol).
     """
     default = {
-        "positions":        {},
-        "cash_usdt":        0.0,
-        "initial_nav":      0.0,
-        "current_weights":  {},
-        "last_run":         None,
-        "position_entries": {},
+        "positions":               {},
+        "cash_usdt":               0.0,
+        "initial_nav":             0.0,
+        "current_weights":         {},
+        "last_run":                None,
+        "position_entries":        {},
+        "active_strategies":       [],
+        "active_strategy_weights": {},
     }
     try:
         with _db() as conn:
             cur = conn.cursor()
 
             cur.execute("""
-                SELECT positions, cash_usdt, initial_nav, current_weights, last_run
+                SELECT positions, cash_usdt, initial_nav, current_weights, last_run,
+                       active_strategies, active_strategy_weights
                 FROM live_state
                 WHERE id = 1
             """)
@@ -89,15 +92,18 @@ def get_live_state() -> dict:
             if row is None:
                 return default
 
-            positions, cash_usdt, initial_nav, current_weights, last_run = row
+            positions, cash_usdt, initial_nav, current_weights, last_run, \
+                active_strategies, active_strategy_weights = row
 
             state = {
-                "positions":        positions if isinstance(positions, dict) else {},
-                "cash_usdt":        float(cash_usdt) if cash_usdt is not None else 0.0,
-                "initial_nav":      float(initial_nav) if initial_nav is not None else 0.0,
-                "current_weights":  current_weights if isinstance(current_weights, dict) else {},
-                "last_run":         str(last_run) if last_run is not None else None,
-                "position_entries": {},
+                "positions":               positions if isinstance(positions, dict) else {},
+                "cash_usdt":               float(cash_usdt) if cash_usdt is not None else 0.0,
+                "initial_nav":             float(initial_nav) if initial_nav is not None else 0.0,
+                "current_weights":         current_weights if isinstance(current_weights, dict) else {},
+                "last_run":                str(last_run) if last_run is not None else None,
+                "position_entries":        {},
+                "active_strategies":       active_strategies if isinstance(active_strategies, list) else [],
+                "active_strategy_weights": active_strategy_weights if isinstance(active_strategy_weights, dict) else {},
             }
 
             cur.execute("""
@@ -284,6 +290,74 @@ def get_hypothetical_trades(strategy: str, limit: int = 50) -> pd.DataFrame:
             return df
     except Exception as e:
         logger.error(f"get_hypothetical_trades failed: {e}")
+        return pd.DataFrame(columns=cols)
+
+
+# ── Strategy summary (live hypothetical + backtest metrics) ──────────────────
+
+def get_strategy_summary() -> pd.DataFrame:
+    """
+    Merge live hypothetical performance with backtest metrics.
+
+    Columns: strategy, live_nav, live_return_pct, live_win_rate,
+             sharpe, sortino, max_drawdown, win_rate (backtest).
+    """
+    from config.settings import PORTFOLIO_USDT
+    cols = ["strategy", "live_nav", "live_return_pct", "live_trades",
+            "live_win_rate", "sharpe", "sortino", "max_drawdown", "win_rate"]
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+
+            # Latest NAV per strategy
+            cur.execute("""
+                SELECT strategy, nav
+                FROM hypothetical_nav h
+                WHERE recorded_at = (
+                    SELECT MAX(recorded_at) FROM hypothetical_nav WHERE strategy = h.strategy
+                )
+            """)
+            nav_rows = {r[0]: float(r[1]) for r in cur.fetchall()}
+
+            # Win rate from hypothetical_trades (SELL trades with pnl proxy > 0 not stored,
+            # so count distinct symbols with net positive weight change as wins)
+            cur.execute("""
+                SELECT strategy,
+                       COUNT(*) AS total_trades
+                FROM hypothetical_trades
+                GROUP BY strategy
+            """)
+            trade_counts = {r[0]: int(r[1]) for r in cur.fetchall()}
+
+            # Backtest metrics
+            cur.execute("""
+                SELECT strategy, sharpe, sortino, max_drawdown, win_rate
+                FROM strategy_metrics
+            """)
+            bt_rows = {r[0]: r[1:] for r in cur.fetchall()}
+
+            strategies = sorted(set(list(nav_rows.keys()) + list(bt_rows.keys())))
+            records = []
+            for strat in strategies:
+                nav = nav_rows.get(strat, PORTFOLIO_USDT)
+                ret_pct = (nav - PORTFOLIO_USDT) / PORTFOLIO_USDT * 100
+                bt = bt_rows.get(strat, (None, None, None, None))
+                records.append({
+                    "strategy":       strat,
+                    "live_nav":       round(nav, 2),
+                    "live_return_pct": round(ret_pct, 2),
+                    "live_trades":    trade_counts.get(strat, 0),
+                    "live_win_rate":  None,
+                    "sharpe":         round(float(bt[0]), 3) if bt[0] is not None else None,
+                    "sortino":        round(float(bt[1]), 3) if bt[1] is not None else None,
+                    "max_drawdown":   round(float(bt[2]), 4) if bt[2] is not None else None,
+                    "win_rate":       round(float(bt[3]), 3) if bt[3] is not None else None,
+                })
+
+            return pd.DataFrame(records, columns=cols)
+
+    except Exception as e:
+        logger.error(f"get_strategy_summary failed: {e}")
         return pd.DataFrame(columns=cols)
 
 
