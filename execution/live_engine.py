@@ -654,13 +654,15 @@ def update_hypotheticals(signals_dict: dict, current_prices: dict, state: dict):
                 for sym in UNIVERSE:
                     pw = float(prev_weights.get(sym, 0))
                     if abs(pw) >= 0.01:
+                        _bp = float(current_prices.get(sym, 0))
                         trade_history.append({
                             "time":        ts_now,
                             "symbol":      sym,
                             "side":        "BUY" if pw > 0 else "SELL",
+                            "qty":         round(prev_nav * abs(pw) / _bp, 6) if _bp > 0 else 0.0,
                             "weight_from": 0.0,
                             "weight_to":   round(pw * 100, 1),
-                            "price":       float(current_prices.get(sym, 0)),
+                            "price":       _bp,
                             "hypo_value":  round(prev_nav * abs(pw), 2),
                         })
 
@@ -700,6 +702,7 @@ def update_hypotheticals(signals_dict: dict, current_prices: dict, state: dict):
                     "time":        ts_now,
                     "symbol":      sym,
                     "side":        "BUY" if delta_w > 0 else "SELL",
+                    "qty":         round(hypo_value / price, 6) if price > 0 else 0.0,
                     "weight_from": round(prev_w * 100, 1),
                     "weight_to":   round(new_w * 100, 1),
                     "price":       price,
