@@ -146,3 +146,44 @@ def save_results(
     cum_returns.to_csv(output_dir / "cumulative_returns.csv")
 
     logger.success(f"Results saved to {output_dir}")
+
+    # Also persist strategy metrics to PostgreSQL
+    try:
+        from db.connection import get_conn, put_conn
+        conn = get_conn()
+        try:
+            cur = conn.cursor()
+            for name, r in backtest_results.items():
+                m = r.metrics
+                cur.execute("""
+                    INSERT INTO strategy_metrics
+                        (strategy, sharpe, sortino, calmar, cagr, max_drawdown,
+                         total_return, win_rate, profit_factor, recorded_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (strategy) DO UPDATE SET
+                        sharpe        = EXCLUDED.sharpe,
+                        sortino       = EXCLUDED.sortino,
+                        calmar        = EXCLUDED.calmar,
+                        cagr          = EXCLUDED.cagr,
+                        max_drawdown  = EXCLUDED.max_drawdown,
+                        total_return  = EXCLUDED.total_return,
+                        win_rate      = EXCLUDED.win_rate,
+                        profit_factor = EXCLUDED.profit_factor,
+                        recorded_at   = EXCLUDED.recorded_at
+                """, (
+                    name,
+                    m.get("sharpe"),
+                    m.get("sortino"),
+                    m.get("calmar"),
+                    m.get("cagr"),
+                    m.get("max_drawdown"),
+                    m.get("total_return"),
+                    m.get("win_rate"),
+                    m.get("profit_factor"),
+                ))
+            conn.commit()
+            logger.success("Strategy metrics written to PostgreSQL")
+        finally:
+            put_conn(conn)
+    except Exception as e:
+        logger.warning(f"DB write for strategy_metrics skipped: {e}")

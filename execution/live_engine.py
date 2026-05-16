@@ -49,9 +49,14 @@ from data.ingestion import get_universe_ohlcv, build_close_matrix, build_return_
 from data.ingestion import get_fear_greed_index, get_universe_funding_rates
 from seasonality.analyzer import blend_signals
 from utils.logger import setup_logger
+from db.state import (
+    load_state as _db_load_state,
+    save_state,
+    load_nav_history_for_report,
+    load_trade_log_for_report,
+)
+from db.controls import load_controls, acknowledge_close_all
 
-
-STATE_FILE      = RESULT_DIR / "live_state.json"
 _last_heartbeat = 0.0   # tracks when the monitor last printed a full portfolio snapshot
 
 
@@ -115,16 +120,12 @@ def _bootstrap_from_binance() -> dict:
 
 
 def load_state() -> dict:
-    if STATE_FILE.exists():
-        with open(STATE_FILE) as f:
-            state = json.load(f)
-        # initial_nav may be absent in very old state files; leave it None so
-        # reconcile_with_binance() stamps it from the real Binance balance.
-        if "initial_nav" not in state:
-            state["initial_nav"] = None
+    # Try DB first
+    state = _db_load_state()
+    if state is not None:
         return state
 
-    # No state file — bootstrap from Binance (real positions + real USDT balance)
+    # No DB row yet — bootstrap from Binance (real positions + real USDT balance)
     try:
         return _bootstrap_from_binance()
     except Exception as e:
@@ -134,7 +135,7 @@ def load_state() -> dict:
     return {
         "positions":        {sym: 0.0 for sym in UNIVERSE},
         "cash_usdt":        0.0,
-        "initial_nav":      None,   # will be set by reconcile_with_binance on first cycle
+        "initial_nav":      None,
         "last_run":         None,
         "nav_history":      [],
         "current_weights":  {},
@@ -142,6 +143,9 @@ def load_state() -> dict:
         "trade_log":        [],
         "hypothetical":     {},
         "active_strategies": [],
+        "_nav_db_count":    0,
+        "_trade_db_count":  0,
+        "_hyp_counts":      {},
     }
 
 
@@ -211,27 +215,8 @@ def reconcile_with_binance(state: dict, prices: dict) -> dict:
     return state
 
 
-_NAV_HISTORY_CAP    = 2880   # keep last 2 days at 1-min cadence
-_TRADE_HISTORY_CAP  = 500    # per-strategy hypothetical trade log
-
-
-def save_state(state: dict):
-    # Cap unbounded lists to prevent the state file growing indefinitely
-    if len(state.get("nav_history", [])) > _NAV_HISTORY_CAP:
-        state["nav_history"] = state["nav_history"][-_NAV_HISTORY_CAP:]
-
-    for hyp in state.get("hypothetical", {}).values():
-        if len(hyp.get("nav_history", [])) > _NAV_HISTORY_CAP:
-            hyp["nav_history"] = hyp["nav_history"][-_NAV_HISTORY_CAP:]
-        if len(hyp.get("trade_history", [])) > _TRADE_HISTORY_CAP:
-            hyp["trade_history"] = hyp["trade_history"][-_TRADE_HISTORY_CAP:]
-
-    # Atomic write: write to .tmp then rename so a mid-write crash never
-    # produces a corrupted file (os.replace is atomic on POSIX).
-    tmp = STATE_FILE.with_suffix(".tmp")
-    with open(tmp, "w") as f:
-        json.dump(state, f, indent=2, default=str)
-    tmp.replace(STATE_FILE)
+_NAV_HISTORY_CAP   = 2880   # keep last 2 days at 1-min cadence in-memory
+_TRADE_HISTORY_CAP = 500    # per-strategy hypothetical trade log in-memory
 
 
 # ── Portfolio NAV ──────────────────────────────────────────────────────────────
@@ -814,6 +799,40 @@ def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: d
     logger.info("=" * 55)
     logger.info(f"Signal recompute — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
 
+    # ── Engine controls (kill switch / close-all / override) ──────────────────
+    try:
+        controls = load_controls()
+    except Exception as e:
+        logger.warning(f"Could not read engine_controls ({e}) — proceeding normally")
+        controls = {}
+
+    if controls.get("close_all_triggered"):
+        logger.warning("[CONTROL] CLOSE ALL triggered from dashboard — flattening all positions")
+        state = load_state()
+        prices = fetch_current_prices()
+        exits = {
+            sym: prices[sym]
+            for sym, qty in state["positions"].items()
+            if qty != 0 and sym in prices
+        }
+        if exits:
+            state = execute_exits_only(exits, state)
+            nav = compute_nav(state, prices)
+            state["nav_history"].append({
+                "date":  str(pd.Timestamp.now(tz="UTC")),
+                "nav":   round(nav, 2),
+                "event": "close_all",
+            })
+            save_state(state)
+        acknowledge_close_all()
+        logger.warning("[CONTROL] All positions closed. Kill switch remains ACTIVE — no further orders.")
+        return
+
+    if controls.get("kill_switch"):
+        logger.warning("[CONTROL] Kill switch ACTIVE — signal rebalance blocked this cycle")
+        return
+    # ── End engine controls ───────────────────────────────────────────────────
+
     state = load_state()
 
     # 1. Fresh data (bypass cache so we always have the latest bar)
@@ -885,16 +904,34 @@ def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: d
     logger.info("Updating hypothetical paper portfolios...")
     update_hypotheticals(signals_dict, prices, state)
 
-    # 6. New target weights for LIVE portfolio (live hypothetical perf feeds selection)
+    # 6. New target weights for LIVE portfolio
     try:
-        new_weights, active_sel = compute_target_weights(
-            seasonality_analyzer=seasonality_analyzer,
-            signals_dict=signals_dict,
-            close=close,
-            hypotheticals=state.get("hypothetical", {}),
-        )
-        state["active_strategies"]      = [name for name, _ in active_sel]
-        state["active_strategy_weights"] = {name: round(w, 4) for name, w in active_sel}
+        if controls.get("override_active"):
+            # Manual override from dashboard — skip signal/optimizer entirely
+            if controls.get("override_mode") == "quantities":
+                nav_for_override = compute_nav(state, prices)
+                manual_qty = controls.get("manual_quantities", {})
+                new_weights = pd.Series({
+                    sym: (float(manual_qty.get(sym, 0)) * prices.get(sym, 0)) / nav_for_override
+                    if nav_for_override > 0 else 0.0
+                    for sym in UNIVERSE
+                }).reindex(UNIVERSE, fill_value=0.0)
+                logger.info(f"[OVERRIDE] Using manual quantities: { {k: v for k, v in manual_qty.items() if v} }")
+            else:
+                manual_w = controls.get("manual_weights", {})
+                new_weights = pd.Series(manual_w).reindex(UNIVERSE, fill_value=0.0)
+                logger.info(f"[OVERRIDE] Using manual weights: { {k: round(v*100,1) for k, v in manual_w.items() if v} }%")
+            state["active_strategies"]       = ["MANUAL_OVERRIDE"]
+            state["active_strategy_weights"] = {"MANUAL_OVERRIDE": 1.0}
+        else:
+            new_weights, active_sel = compute_target_weights(
+                seasonality_analyzer=seasonality_analyzer,
+                signals_dict=signals_dict,
+                close=close,
+                hypotheticals=state.get("hypothetical", {}),
+            )
+            state["active_strategies"]       = [name for name, _ in active_sel]
+            state["active_strategy_weights"] = {name: round(w, 4) for name, w in active_sel}
     except Exception as e:
         logger.error(f"Weight computation failed: {e}")
         save_state(state)  # persist hypotheticals even on error
@@ -968,12 +1005,10 @@ def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: d
 # ── Graceful shutdown reporting ────────────────────────────────────────────────
 def _generate_final_reports():
     try:
-        if not STATE_FILE.exists():
-            logger.warning("No live state file to report on.")
+        state = _db_load_state()
+        if state is None:
+            logger.warning("No live state in DB to report on.")
             return
-
-        with open(STATE_FILE) as f:
-            state = json.load(f)
 
         logger.info("\n" + "=" * 55)
         logger.info("FINAL REPORT — Live Trading Session")
@@ -985,10 +1020,10 @@ def _generate_final_reports():
         for sym, qty in open_pos.items():
             logger.info(f"  {sym}: {qty:.6f}")
 
-        trade_log = state.get("trade_log", [])
+        trade_log = load_trade_log_for_report()
         logger.info(f"Total trades executed: {len(trade_log)}")
 
-        nav_history = state.get("nav_history", [])
+        nav_history = load_nav_history_for_report()
         if nav_history:
             nav_df    = pd.DataFrame(nav_history)
             nav_df["nav"] = pd.to_numeric(nav_df["nav"])

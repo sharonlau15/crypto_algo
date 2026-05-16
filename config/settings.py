@@ -38,6 +38,8 @@ if not _env_loaded:
         stacklevel=2,
     )
 
+DB_URL          = os.getenv("DB_URL", "postgresql://sharonlau15:sharon@localhost:5432/crypto_algo")
+
 API_KEY         = os.getenv("BINANCE_API_KEY")
 API_SECRET      = os.getenv("BINANCE_API_SECRET")
 DEMO_API_KEY    = os.getenv("BINANCE_DEMO_API_KEY", API_KEY)
@@ -117,10 +119,6 @@ STRATEGY_PARAMS = {
         "entry_z":        2.0,
         "exit_z":         0.5,
     },
-    "risk_parity": {
-        "lookback":       63,    # 3-month vol for weights
-        "max_iter":       100,
-    },
     "cross_sectional_momentum": {
         "lookback":       20,
         "rank_method":    "min",
@@ -131,11 +129,20 @@ STRATEGY_PARAMS = {
         "lookback":       20,
     },
     "pairs_trading": {
-        "pair":           ("BTCUSDT", "ETHUSDT"),
-        "lookback":       60,
-        "entry_z":        2.0,
-        "exit_z":         0.0,
-        "coint_pvalue":   0.05,
+        "lookback":        90,    # Rolling window for spread z-score and cointegration
+        "top_pairs":       3,     # Number of best pairs to trade simultaneously
+        "min_correlation": 0.60,  # Pearson |ρ| gate before running coint test
+        "max_coint_pval":  0.05,  # Engle-Granger p-value threshold
+        "reselect_freq":   5,     # Re-run pair selection every N bars
+        "entry_z":         2.0,
+        "exit_z":          0.0,
+    },
+    "exhaustion_fade": {
+        "bb_window":          20,     # Bollinger Band lookback
+        "bb_std":             2.5,    # Bollinger Band standard deviation multiplier
+        "adx_period":         14,     # ADX smoothing period (Wilder)
+        "adx_threshold":      30,     # ADX < threshold = ranging market
+        "funding_threshold":  0.0005, # |funding rate| threshold for confirmation
     },
     "ml_signal": {
         "feature_lookbacks": [1, 3, 5, 10, 21],

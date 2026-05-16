@@ -7,23 +7,20 @@ Strategy list
 -------------
  1. MomentumStrategy          — 12-1 month time-series momentum
  2. MeanReversionStrategy     — z-score mean reversion
- 3. RiskParityStrategy        — inverse volatility weighting
- 4. CrossSectionalMomentum    — rank-based cross-sectional momentum
- 5. VolBreakoutStrategy       — ATR channel breakout
- 6. PairsTradingStrategy      — BTC/ETH cointegration spread
- 7. MLSignalStrategy          — LightGBM on lagged features
- 8. MacroRotationStrategy     — BTC regime risk-on/off
- 9. CarryStrategy             — funding rate carry
-10. SentimentStrategy         — Fear & Greed index overlay
+ 3. CrossSectionalMomentum    — rank-based cross-sectional momentum
+ 4. VolBreakoutStrategy       — ATR channel breakout
+ 5. PairsTradingStrategy      — dynamic pair selection (correlation + cointegration + distance)
+ 6. MLSignalStrategy          — LightGBM on lagged features
+ 7. MacroRotationStrategy     — BTC regime risk-on/off
+ 8. CarryStrategy             — funding rate carry
+ 9. SentimentStrategy         — Fear & Greed index overlay
+10. ExhaustionFadeStrategy    — BB breach + extreme funding + ADX ranging fade
 """
 
 import numpy as np
 import pandas as pd
-from scipy import stats
-from sklearn.preprocessing import RobustScaler
-from sklearn.model_selection import TimeSeriesSplit
+from statsmodels.tsa.stattools import coint
 import lightgbm as lgb
-
 from loguru import logger
 
 from strategies.base import BaseStrategy
@@ -52,7 +49,6 @@ class MomentumStrategy(BaseStrategy):
         top_n    = p["top_n"]
         bot_n    = p["bottom_n"]
 
-        # Return = log(close[t] / close[t - lb_long]) - log(close[t] / close[t - lb_short])
         ret_long  = close / close.shift(lb_long)  - 1
         ret_short = close / close.shift(lb_short) - 1
         score = ret_long - ret_short
@@ -78,9 +74,8 @@ class MeanReversionStrategy(BaseStrategy):
     """
     Rolling z-score of price relative to its own moving average.
     Long when z < -entry_z, short when z > +entry_z.
-    Exit when |z| < exit_z.
-    Economic justification: short-term crypto overreaction to news
-    creates exploitable reversion windows (typically 3-20 days).
+    Economic justification: short-term crypto overreaction creates
+    exploitable reversion windows (typically 3-20 days).
     """
 
     def __init__(self):
@@ -95,57 +90,19 @@ class MeanReversionStrategy(BaseStrategy):
         roll_std  = close.rolling(w).std()
         zscore    = (close - roll_mean) / roll_std.replace(0, np.nan)
 
-        # Continuous signal: full [-1, +1] range proportional to z-score.
-        # Negative z (oversold) → positive signal (long); positive z → short.
-        # Clipped at ±3σ to avoid extreme outlier sizing.
         signals = (-zscore / (ez * 3)).clip(-1, 1).fillna(0)
         return signals
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 3. RISK PARITY (inverse volatility)
-# ══════════════════════════════════════════════════════════════════════════════
-class RiskParityStrategy(BaseStrategy):
-    """
-    Equal risk contribution: each token contributes the same amount
-    of portfolio volatility. Weights ∝ 1 / rolling_vol.
-    Long-only. Always fully invested.
-    Economic justification: diversifies risk rather than capital,
-    outperforms equal-weight in high-dispersion environments.
-    """
-
-    def __init__(self):
-        super().__init__("risk_parity", STRATEGY_PARAMS["risk_parity"])
-
-    def generate_signals(self, close, returns, **kwargs):
-        lb = self.params["lookback"]
-        roll_vol = returns.rolling(lb).std()
-
-        # Replace inf (zero-vol / stale tokens like MATICUSDT post-migration) with NaN
-        # so they are excluded from weighting rather than poisoning the entire row.
-        inv_vol = (1.0 / roll_vol).replace([np.inf, -np.inf], np.nan)
-
-        # Normalize per row using only the tokens that have valid vol estimates.
-        # pandas sum(axis=1) skips NaN by default, so stale tokens get 0 weight.
-        row_sum = inv_vol.sum(axis=1, skipna=True)
-        signals = inv_vol.div(row_sum.replace(0, np.nan), axis=0).fillna(0)
-
-        # Reindex to match close shape (returns has one fewer row due to dropna),
-        # then forward-fill so the last row always has a valid signal.
-        signals = signals.reindex(close.index, fill_value=0).ffill().fillna(0)
-        return signals
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 4. CROSS-SECTIONAL MOMENTUM (rank-based)
+# 3. CROSS-SECTIONAL MOMENTUM (rank-based)
 # ══════════════════════════════════════════════════════════════════════════════
 class CrossSectionalMomentumStrategy(BaseStrategy):
     """
     Rank all tokens by their N-day return each day.
-    Convert rank to signal in [-1, 1] range.
-    Continuous signal: top-ranked gets +1, bottom-ranked gets -1.
-    Economic justification: relative momentum (winners vs losers
-    within the same asset class) removes systematic market beta.
+    Convert rank to a continuous signal in [-1, 1].
+    Economic justification: relative momentum removes systematic beta,
+    isolating idiosyncratic winner/loser dynamics.
     """
 
     def __init__(self):
@@ -157,7 +114,6 @@ class CrossSectionalMomentumStrategy(BaseStrategy):
         method = self.params["rank_method"]
 
         cum_ret = close / close.shift(lb) - 1
-        # Rank 0..N-1, rescale to [-1, +1]
         ranked  = cum_ret.rank(axis=1, ascending=True, method=method)
         n_valid = cum_ret.notna().sum(axis=1)
         signals = (ranked.sub(1, axis=0)).div(n_valid - 1, axis=0) * 2 - 1
@@ -166,15 +122,14 @@ class CrossSectionalMomentumStrategy(BaseStrategy):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 5. VOLATILITY BREAKOUT (ATR channels)
+# 4. VOLATILITY BREAKOUT (ATR channels)
 # ══════════════════════════════════════════════════════════════════════════════
 class VolBreakoutStrategy(BaseStrategy):
     """
-    ATR-based Donchian channel breakout.
-    Long when price closes above upper band (prev_close + atr_mult * ATR).
-    Short when price closes below lower band.
-    Economic justification: volatility expansion after compression
-    signals the start of a new directional move.
+    ATR-based channel breakout. Continuous signal proportional to how far
+    price has moved relative to the ATR midpoint, scaled by band half-width.
+    Economic justification: volatility expansion after compression signals
+    the start of a new directional move.
     """
 
     def __init__(self):
@@ -197,83 +152,156 @@ class VolBreakoutStrategy(BaseStrategy):
         signals = pd.DataFrame(0.0, index=close.index, columns=close.columns)
 
         for sym in close.columns:
-            atr      = self._atr(high[sym], low[sym], close[sym], p["atr_period"])
-            midpoint = close[sym].shift(1)
+            atr       = self._atr(high[sym], low[sym], close[sym], p["atr_period"])
+            midpoint  = close[sym].shift(1)
             half_band = (p["atr_multiplier"] * atr).replace(0, np.nan)
-            # Continuous: how far price is above/below the ATR midpoint,
-            # scaled by band half-width. Always produces a signal in [-1, +1].
             signals[sym] = ((close[sym] - midpoint) / half_band).clip(-1, 1).fillna(0)
 
         return signals
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 6. PAIRS TRADING (BTC / ETH cointegration)
+# 5. PAIRS TRADING (dynamic pair selection)
 # ══════════════════════════════════════════════════════════════════════════════
 class PairsTradingStrategy(BaseStrategy):
     """
-    Engle-Granger cointegration between BTC and ETH.
-    Trade the spread: spread = log(BTC) - β * log(ETH).
-    Long spread when z < -entry_z, short when z > +entry_z.
-    β is re-estimated on a rolling window.
-    Economic justification: BTC/ETH share macro crypto risk factors;
-    idiosyncratic divergence is mean-reverting.
+    Dynamically selects the best-fitting pairs from the full universe using
+    three complementary measures, then trades z-score spread mean reversion.
+
+    Pair selection (re-run every reselect_freq bars):
+      1. Pearson correlation of log returns — screens for co-movement
+      2. Engle-Granger cointegration test   — confirms long-run equilibrium
+      3. Normalized price distance (SSD)    — rewards tight historical tracking
+
+    Combined score = |ρ| × (1 − p_coint) / (1 + distance)
+
+    Only pairs that pass both min_correlation and max_coint_pval thresholds
+    are eligible. The top N scoring pairs are traded simultaneously.
+
+    For each selected pair the signal is the rolling z-score of the OLS
+    spread, with equal weight split across all active pairs.
     """
 
     def __init__(self):
         super().__init__("pairs_trading", STRATEGY_PARAMS["pairs_trading"])
 
+    def _select_pairs(
+        self,
+        log_window: pd.DataFrame,
+        top_n: int,
+        min_corr: float,
+        max_pval: float,
+    ) -> list[dict]:
+        """Score all candidate pairs and return the top N that pass filters."""
+        cols = log_window.columns.tolist()
+        candidates: list[dict] = []
+
+        for i in range(len(cols)):
+            for j in range(i + 1, len(cols)):
+                sym1, sym2 = cols[i], cols[j]
+                aligned = log_window[[sym1, sym2]].dropna()
+
+                if len(aligned) < 40:
+                    continue
+
+                s1, s2 = aligned[sym1], aligned[sym2]
+
+                # 1. Correlation gate (cheap — run first to skip bad pairs early)
+                corr = s1.corr(s2)
+                if abs(corr) < min_corr:
+                    continue
+
+                # 2. Cointegration test (Engle-Granger)
+                try:
+                    _, pvalue, _ = coint(s1, s2)
+                except Exception:
+                    continue
+                if pvalue > max_pval:
+                    continue
+
+                # 3. Normalized price distance (sum of squared differences)
+                n1 = (s1 - s1.mean()) / (s1.std() + 1e-10)
+                n2 = (s2 - s2.mean()) / (s2.std() + 1e-10)
+                distance = ((n1 - n2) ** 2).mean()
+
+                # OLS hedge ratio for spread construction
+                beta = float(np.polyfit(s2.values, s1.values, 1)[0])
+
+                score = abs(corr) * (1.0 - pvalue) / (1.0 + distance)
+                candidates.append({
+                    "sym1": sym1, "sym2": sym2,
+                    "corr": corr, "pvalue": pvalue,
+                    "distance": distance, "beta": beta,
+                    "score": score,
+                })
+
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+        selected = candidates[:top_n]
+
+        if selected:
+            summary = " | ".join(
+                f"{p['sym1'].replace('USDT','')}/{p['sym2'].replace('USDT','')}"
+                f"(ρ={p['corr']:.2f}, p={p['pvalue']:.3f})"
+                for p in selected
+            )
+            logger.debug(f"PairsTrading selected: {summary}")
+
+        return selected
+
     def generate_signals(self, close, returns, **kwargs):
-        p    = self.params
-        sym1, sym2 = p["pair"]
-        lb   = p["lookback"]
-        ez   = p["entry_z"]
+        p             = self.params
+        lb            = p["lookback"]
+        ez            = p["entry_z"]
+        top_n         = p["top_pairs"]
+        min_corr      = p["min_correlation"]
+        max_pval      = p["max_coint_pval"]
+        reselect_freq = p["reselect_freq"]
 
-        signals = pd.DataFrame(0.0, index=close.index, columns=close.columns)
+        signals   = pd.DataFrame(0.0, index=close.index, columns=close.columns)
+        log_close = np.log(close.clip(lower=1e-10))
 
-        if sym1 not in close.columns or sym2 not in close.columns:
-            logger.warning("Pairs trading: one or both symbols missing from universe")
+        if len(close) < lb + 30:
             return signals
 
-        log1 = np.log(close[sym1])
-        log2 = np.log(close[sym2])
+        for chunk_start in range(lb, len(close), reselect_freq):
+            # Select pairs using data strictly before this chunk
+            selection_window = log_close.iloc[max(0, chunk_start - lb):chunk_start]
+            pairs = self._select_pairs(selection_window, top_n, min_corr, max_pval)
 
-        for i in range(lb, len(close)):
-            window1 = log1.iloc[i-lb:i]
-            window2 = log2.iloc[i-lb:i]
-
-            # OLS hedge ratio — no cointegration gate so signal is always live
-            beta   = np.polyfit(window2, window1, 1)[0]
-            spread = window1 - beta * window2
-            mu, sigma = spread.mean(), spread.std()
-            if sigma == 0:
+            if not pairs:
                 continue
 
-            current_spread = log1.iloc[i] - beta * log2.iloc[i]
-            z = (current_spread - mu) / sigma
+            chunk_end   = min(chunk_start + reselect_freq, len(close))
+            chunk_dates = close.index[chunk_start:chunk_end]
+            pair_count  = len(pairs)
 
-            dt = close.index[i]
-            # Continuous signal proportional to z-score, clipped at ±3
-            strength = float(np.clip(-z / (ez * 3), -1, 1))
-            signals.loc[dt, sym1] =  strength
-            signals.loc[dt, sym2] = -strength
+            for pair in pairs:
+                sym1, sym2, beta = pair["sym1"], pair["sym2"], pair["beta"]
 
-        return signals
+                # Vectorized rolling spread z-score over full history
+                spread    = log_close[sym1] - beta * log_close[sym2]
+                roll_mean = spread.rolling(lb).mean()
+                roll_std  = spread.rolling(lb).std().replace(0, np.nan)
+                zscore    = (spread - roll_mean) / roll_std
+
+                pair_sig = (-zscore / (ez * 3)).clip(-1, 1).fillna(0)
+
+                # Accumulate into signals, split weight equally across pairs
+                signals.loc[chunk_dates, sym1] += pair_sig.loc[chunk_dates].values / pair_count
+                signals.loc[chunk_dates, sym2] -= pair_sig.loc[chunk_dates].values / pair_count
+
+        return signals.clip(-1, 1).fillna(0)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 7. ML SIGNAL (LightGBM)
+# 6. ML SIGNAL (LightGBM)
 # ══════════════════════════════════════════════════════════════════════════════
 class MLSignalStrategy(BaseStrategy):
     """
     Walk-forward LightGBM classifier trained on lagged return features.
     Target: sign of next-day return (1 = up, 0 = down/flat).
     Features: lagged returns at [1, 3, 5, 10, 21] days + rolling vol/skew.
-    Strictly no look-ahead: model trained on [t-train_window, t-1],
-    predicts t, signal used at t+1.
-
-    Economic justification: Non-linear interaction between short-term
-    momentum and volatility regimes not captured by linear models.
+    Strictly no look-ahead: trained on [t-train_window, t-1], predicts t.
     """
 
     def __init__(self):
@@ -285,25 +313,14 @@ class MLSignalStrategy(BaseStrategy):
         feats = {}
         for lag in lags:
             feats[f"ret_{lag}d"] = returns.shift(lag)
-        feats["vol_10d"]  = returns.rolling(10).std()
-        feats["vol_21d"]  = returns.rolling(21).std()
-        feats["skew_21d"] = returns.rolling(21).skew()
+        feats["vol_10d"]   = returns.rolling(10).std()
+        feats["vol_21d"]   = returns.rolling(21).std()
+        feats["skew_21d"]  = returns.rolling(21).skew()
         feats["vol_ratio"] = feats["vol_10d"] / feats["vol_21d"]
         return pd.DataFrame(feats)
 
     def generate_signals(self, close, returns, **kwargs):
-        """
-        Walk-forward LightGBM with periodic retraining every RETRAIN_FREQ days.
-
-        For each prediction at index i:
-          - Model is trained on returns[i - train_window : i]  (strictly past)
-          - Prediction is made for returns[i]                  (current day)
-          - Signal is applied at i+1 by base.py shift(1)       (T+1 execution)
-
-        Retraining every 30 days (not every day) keeps runtime manageable
-        while ensuring no future data ever enters the training set.
-        """
-        RETRAIN_FREQ = 30   # retrain model every N days
+        RETRAIN_FREQ = 30
 
         p       = self.params
         tw      = p["train_window"]
@@ -314,22 +331,16 @@ class MLSignalStrategy(BaseStrategy):
             if len(ret) < tw + 30:
                 continue
 
-            feats  = self._build_features(ret)
-            # Target: sign of *next* day's return (what we are trying to predict)
-            target = (ret.shift(-1) > 0).astype(int)
-
+            feats   = self._build_features(ret)
+            target  = (ret.shift(-1) > 0).astype(int)
             col_idx = close.columns.get_loc(sym)
             model   = None
 
             for i in range(tw, len(ret)):
-                # Retrain on first prediction and then every RETRAIN_FREQ steps
                 if model is None or (i - tw) % RETRAIN_FREQ == 0:
                     X_train = feats.iloc[i - tw : i].dropna()
-                    # target at row j = sign of ret[j+1]; exclude last row of
-                    # window (ret[i-1]) because its label is ret[i] which is
-                    # the value we are about to predict — that would be leakage.
                     y_train = target.iloc[i - tw : i - 1].loc[X_train.iloc[:-1].index]
-                    X_train = X_train.iloc[:-1]   # align with y_train
+                    X_train = X_train.iloc[:-1]
 
                     if len(X_train) < 50 or y_train.nunique() < 2:
                         model = None
@@ -355,8 +366,8 @@ class MLSignalStrategy(BaseStrategy):
                 if X_pred.empty:
                     continue
                 try:
-                    prob = model.predict_proba(X_pred)[0][1]   # P(up)
-                    signals.iloc[i, col_idx] = prob * 2 - 1    # rescale to [-1, +1]
+                    prob = model.predict_proba(X_pred)[0][1]
+                    signals.iloc[i, col_idx] = prob * 2 - 1
                 except Exception:
                     pass
 
@@ -364,15 +375,14 @@ class MLSignalStrategy(BaseStrategy):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 8. MACRO ROTATION (BTC regime)
+# 7. MACRO ROTATION (BTC regime)
 # ══════════════════════════════════════════════════════════════════════════════
 class MacroRotationStrategy(BaseStrategy):
     """
-    Simple regime filter: if BTC is above its 200-day MA → risk-on
-    (equal-weight all tokens), else → risk-off (flat or short alts).
-    Optionally overlaid with a momentum tilt in risk-on.
-    Economic justification: BTC is the crypto risk barometer;
-    altcoins correlate strongly with BTC in bear regimes.
+    BTC 200-day MA regime filter. Continuous regime strength scored as
+    BTC % deviation from MA, clipped ±20%, applied equally across all tokens.
+    Economic justification: BTC is the crypto risk barometer — altcoins
+    correlate strongly with BTC in bear regimes.
     """
 
     def __init__(self):
@@ -388,13 +398,10 @@ class MacroRotationStrategy(BaseStrategy):
             logger.warning("MacroRotation: BTC proxy not in universe")
             return signals
 
-        btc = close[proxy]
-        ma  = btc.rolling(200).mean()
-        n   = close.shape[1]
-
-        # Continuous regime strength: BTC % deviation from 200d MA, clipped ±20%
-        # Positive = risk-on (long all), Negative = risk-off (short all)
-        regime_score = ((btc / ma) - 1).clip(-0.20, 0.20) / 0.20  # [-1, +1]
+        btc          = close[proxy]
+        ma           = btc.rolling(200).mean()
+        n            = close.shape[1]
+        regime_score = ((btc / ma) - 1).clip(-0.20, 0.20) / 0.20
 
         for col in close.columns:
             signals[col] = regime_score / n
@@ -403,28 +410,24 @@ class MacroRotationStrategy(BaseStrategy):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 9. CARRY (funding rate)
+# 8. CARRY (funding rate)
 # ══════════════════════════════════════════════════════════════════════════════
 class CarryStrategy(BaseStrategy):
     """
-    Long tokens with highest positive funding rate (market pays you to hold).
-    Short tokens with most negative funding rate.
-    Funding rates reflect the market's directional bias; positive rate
-    means longs pay shorts → contango → carry premium for shorts.
-    We go long tokens where positive funding = sustained bull demand.
-
-    Economic justification: Funding rate carry is a well-documented
-    return premium in crypto perpetual markets.
+    Long tokens with highest positive funding (market pays you to hold longs).
+    Short tokens with most negative funding.
+    Economic justification: funding rate carry is a documented return
+    premium in crypto perpetual markets.
     """
 
     def __init__(self):
         super().__init__("carry", STRATEGY_PARAMS["carry"])
 
     def generate_signals(self, close, returns, **kwargs):
-        funding = kwargs.get("funding_rates")  # pd.DataFrame: index=date, cols=symbols
-        p = self.params
-        top_n = p["top_n"]
-        lb    = p["lookback"]
+        funding = kwargs.get("funding_rates")
+        p       = self.params
+        top_n   = p["top_n"]
+        lb      = p["lookback"]
 
         signals = pd.DataFrame(0.0, index=close.index, columns=close.columns)
 
@@ -432,7 +435,6 @@ class CarryStrategy(BaseStrategy):
             logger.warning("CarryStrategy: no funding rate data — returning flat signal")
             return signals
 
-        # Rolling mean funding rate
         avg_funding = funding.rolling(lb).mean().reindex(close.index, method="ffill")
 
         for dt in close.index:
@@ -448,27 +450,22 @@ class CarryStrategy(BaseStrategy):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 10. SENTIMENT (Fear & Greed Index)
+# 9. SENTIMENT (Fear & Greed Index)
 # ══════════════════════════════════════════════════════════════════════════════
 class SentimentStrategy(BaseStrategy):
     """
-    Uses the Crypto Fear & Greed Index (0=extreme fear, 100=extreme greed).
-    Contrarian: buy extreme fear, sell/short extreme greed.
-    Momentum tilt: trend-follow moderate readings.
-
-    fg > greed_threshold → short all (sentiment overextended)
-    fg < fear_threshold  → long all (capitulation signal)
-    else                 → flat
-
-    Economic justification: retail sentiment overreaction creates
-    short-term mispricings; institutional reversion provides the edge.
+    Contrarian overlay using the Crypto Fear & Greed Index (0–100).
+    Extreme fear  (< fear_threshold)  → long all (capitulation signal).
+    Extreme greed (> greed_threshold) → short all (sentiment overextended).
+    Economic justification: retail overreaction creates short-term
+    mispricings that institutions revert.
     """
 
     def __init__(self):
         super().__init__("sentiment", STRATEGY_PARAMS["sentiment"])
 
     def generate_signals(self, close, returns, **kwargs):
-        fg_data = kwargs.get("fear_greed")  # pd.DataFrame from ingestion
+        fg_data = kwargs.get("fear_greed")
         p       = self.params
 
         signals = pd.DataFrame(0.0, index=close.index, columns=close.columns)
@@ -480,22 +477,147 @@ class SentimentStrategy(BaseStrategy):
         fg = fg_data["fg_value"].reindex(close.index, method="ffill")
         n  = close.shape[1]
 
-        long_mask  = fg < p["fear_threshold"]
-        short_mask = fg > p["greed_threshold"]
-
-        signals.loc[long_mask,  :] =  1.0 / n
-        signals.loc[short_mask, :] = -1.0 / n
+        signals.loc[fg < p["fear_threshold"],  :] =  1.0 / n
+        signals.loc[fg > p["greed_threshold"], :] = -1.0 / n
 
         return signals
 
 
-# ── Factory: instantiate all strategies at once ────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# 10. EXHAUSTION FADE STRATEGY (EFS)
+# ══════════════════════════════════════════════════════════════════════════════
+class ExhaustionFadeStrategy(BaseStrategy):
+    """
+    Waits for a crypto futures market to overextend — confirmed by both price
+    extremes and overcrowded positioning — then fades the snapback to the mean.
+
+    Three conditions must all align on the same bar:
+      1. Price breaches BB(bb_window, bb_std) and closes back inside
+         (previous close outside band, current close inside band).
+      2. Funding rate is extreme (|funding| > funding_threshold per 8hr)
+         in the same direction as the breach — confirming overcrowded positioning.
+      3. ADX(adx_period) < adx_threshold — market is ranging, not trending,
+         so the fade has room to work.
+
+    Signal direction:
+      +1 → lower-band breach + close inside + negative funding (shorts overcrowded) → LONG
+      -1 → upper-band breach + close inside + positive funding (longs overcrowded) → SHORT
+
+    Signal strength is scaled by ADX distance from threshold and funding extremity,
+    so cleaner setups receive larger allocations.
+
+    Note: The 1.5×ATR hard stop and 12-bar time stop described in the strategy
+    spec are enforced by the live engine's risk management layer (STOP_LOSS_PCT,
+    trailing stop). The signal itself marks the entry; exits are handled upstream.
+    """
+
+    def __init__(self):
+        super().__init__("exhaustion_fade", STRATEGY_PARAMS["exhaustion_fade"])
+
+    @staticmethod
+    def _wilder_smooth(series: pd.Series, period: int) -> pd.Series:
+        return series.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
+
+    def _adx(
+        self,
+        high: pd.Series,
+        low: pd.Series,
+        close: pd.Series,
+        period: int,
+    ) -> pd.Series:
+        tr = pd.concat([
+            high - low,
+            (high - close.shift(1)).abs(),
+            (low  - close.shift(1)).abs(),
+        ], axis=1).max(axis=1)
+
+        up   = high - high.shift(1)
+        down = low.shift(1) - low
+
+        dm_plus  = up.where((up > down) & (up > 0), 0.0)
+        dm_minus = down.where((down > up) & (down > 0), 0.0)
+
+        atr_s    = self._wilder_smooth(tr, period)
+        di_plus  = 100 * self._wilder_smooth(dm_plus,  period) / atr_s.replace(0, np.nan)
+        di_minus = 100 * self._wilder_smooth(dm_minus, period) / atr_s.replace(0, np.nan)
+
+        denom = (di_plus + di_minus).replace(0, np.nan)
+        dx    = (di_plus - di_minus).abs() / denom * 100
+        return self._wilder_smooth(dx, period)
+
+    def generate_signals(self, close, returns, **kwargs):
+        p       = self.params
+        high    = kwargs.get("high", close)
+        low     = kwargs.get("low",  close)
+        funding = kwargs.get("funding_rates")
+
+        bb_window   = p["bb_window"]
+        bb_std      = p["bb_std"]
+        adx_period  = p["adx_period"]
+        adx_thresh  = p["adx_threshold"]
+        fund_thresh = p["funding_threshold"]
+
+        signals = pd.DataFrame(0.0, index=close.index, columns=close.columns)
+
+        for sym in close.columns:
+            # ── Bollinger Bands ───────────────────────────────────────────────
+            ma    = close[sym].rolling(bb_window).mean()
+            std   = close[sym].rolling(bb_window).std()
+            upper = ma + bb_std * std
+            lower = ma - bb_std * std
+
+            # Breach-then-close-inside detection
+            prev_above = close[sym].shift(1) > upper.shift(1)
+            prev_below = close[sym].shift(1) < lower.shift(1)
+            now_inside = (close[sym] <= upper) & (close[sym] >= lower)
+
+            fade_short = prev_above & now_inside   # closed back from above → fade longs
+            fade_long  = prev_below & now_inside   # closed back from below → fade shorts
+
+            # ── ADX (ranging condition) ───────────────────────────────────────
+            adx     = self._adx(high[sym], low[sym], close[sym], adx_period)
+            ranging = adx < adx_thresh
+
+            # ── Funding rate ──────────────────────────────────────────────────
+            if (
+                funding is not None
+                and not funding.empty
+                and sym in funding.columns
+            ):
+                fund = funding[sym].reindex(close.index, method="ffill").fillna(0)
+            else:
+                fund = pd.Series(0.0, index=close.index)
+
+            # Funding confirms overcrowded positioning in the breach direction:
+            #   upper breach + positive funding → longs overcrowded → fade short
+            #   lower breach + negative funding → shorts overcrowded → fade long
+            fund_confirms_short = fund >  fund_thresh
+            fund_confirms_long  = fund < -fund_thresh
+
+            # ── All three conditions ──────────────────────────────────────────
+            long_entry  = fade_long  & ranging & fund_confirms_long
+            short_entry = fade_short & ranging & fund_confirms_short
+
+            # ── Signal strength ───────────────────────────────────────────────
+            # Lower ADX = more room for the fade; more extreme funding = more overcrowding.
+            adx_factor  = ((adx_thresh - adx.clip(upper=adx_thresh)) / adx_thresh).fillna(0)
+            fund_abs    = fund.abs().clip(upper=fund_thresh * 4)
+            fund_factor = (fund_abs / (fund_thresh * 4)).fillna(0)
+            strength    = (0.4 + 0.3 * adx_factor + 0.3 * fund_factor).clip(0.3, 1.0)
+
+            signals[sym] = 0.0
+            signals.loc[long_entry,  sym] =  strength.loc[long_entry]
+            signals.loc[short_entry, sym] = -strength.loc[short_entry]
+
+        return signals.fillna(0)
+
+
+# ── Factory ────────────────────────────────────────────────────────────────────
 def get_all_strategies() -> list[BaseStrategy]:
     """Return instances of all 10 strategies."""
     return [
         MomentumStrategy(),
         MeanReversionStrategy(),
-        RiskParityStrategy(),
         CrossSectionalMomentumStrategy(),
         VolBreakoutStrategy(),
         PairsTradingStrategy(),
@@ -503,4 +625,5 @@ def get_all_strategies() -> list[BaseStrategy]:
         MacroRotationStrategy(),
         CarryStrategy(),
         SentimentStrategy(),
+        ExhaustionFadeStrategy(),
     ]
