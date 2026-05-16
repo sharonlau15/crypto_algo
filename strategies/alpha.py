@@ -206,9 +206,13 @@ class PairsTradingStrategy(BaseStrategy):
 
                 s1, s2 = aligned[sym1], aligned[sym2]
 
+                # Skip degenerate series (constant price = zero variance)
+                if s1.std() < 1e-8 or s2.std() < 1e-8:
+                    continue
+
                 # 1. Correlation gate (cheap — run first to skip bad pairs early)
                 corr = s1.corr(s2)
-                if abs(corr) < min_corr:
+                if not np.isfinite(corr) or abs(corr) < min_corr:
                     continue
 
                 # 2. Cointegration test (Engle-Granger)
@@ -225,7 +229,12 @@ class PairsTradingStrategy(BaseStrategy):
                 distance = ((n1 - n2) ** 2).mean()
 
                 # OLS hedge ratio for spread construction
-                beta = float(np.polyfit(s2.values, s1.values, 1)[0])
+                try:
+                    beta = float(np.polyfit(s2.values, s1.values, 1)[0])
+                    if not np.isfinite(beta):
+                        continue
+                except (np.linalg.LinAlgError, ValueError):
+                    continue
 
                 score = abs(corr) * (1.0 - pvalue) / (1.0 + distance)
                 candidates.append({
