@@ -248,6 +248,11 @@ def save_state(state: dict):
 
                 trade_offset = hyp_counts.get(name, {}).get("trades", 0)
                 for row in hyp.get("trade_history", [])[trade_offset:]:
+                    price = row.get("price") or 0.0
+                    qty   = row.get("qty")
+                    if qty is None:
+                        hypo_val = row.get("hypo_value") or 0.0
+                        qty = round(hypo_val / price, 6) if price > 0 else 0.0
                     cur.execute("""
                         INSERT INTO hypothetical_trades
                             (strategy, executed_at, symbol, side, qty, price)
@@ -257,8 +262,8 @@ def save_state(state: dict):
                         row.get("time"),
                         row.get("symbol"),
                         row.get("side"),
-                        row.get("qty"),
-                        row.get("price"),
+                        qty,
+                        price,
                     ))
 
     except Exception as e:
