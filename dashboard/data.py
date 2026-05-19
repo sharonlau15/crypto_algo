@@ -304,54 +304,51 @@ def get_strategy_summary() -> pd.DataFrame:
     """
     from config.settings import PORTFOLIO_USDT
     cols = ["strategy", "live_nav", "live_return_pct", "live_trades",
-            "live_win_rate", "sharpe", "sortino", "max_drawdown", "win_rate"]
+            "sharpe", "sortino", "max_drawdown", "win_rate_pct"]
     try:
         with _db() as conn:
             cur = conn.cursor()
 
-            # Latest NAV per strategy
+            # Latest NAV per strategy — DISTINCT ON is faster and correct
             cur.execute("""
-                SELECT strategy, nav
-                FROM hypothetical_nav h
-                WHERE recorded_at = (
-                    SELECT MAX(recorded_at) FROM hypothetical_nav WHERE strategy = h.strategy
-                )
+                SELECT DISTINCT ON (strategy) strategy, nav
+                FROM hypothetical_nav
+                ORDER BY strategy, recorded_at DESC
             """)
             nav_rows = {r[0]: float(r[1]) for r in cur.fetchall()}
 
-            # Win rate from hypothetical_trades (SELL trades with pnl proxy > 0 not stored,
-            # so count distinct symbols with net positive weight change as wins)
+            # Trade counts per strategy
             cur.execute("""
-                SELECT strategy,
-                       COUNT(*) AS total_trades
+                SELECT strategy, COUNT(*) AS total_trades
                 FROM hypothetical_trades
                 GROUP BY strategy
             """)
             trade_counts = {r[0]: int(r[1]) for r in cur.fetchall()}
 
-            # Backtest metrics
+            # Backtest metrics — only show strategies that have live hypothetical data
             cur.execute("""
                 SELECT strategy, sharpe, sortino, max_drawdown, win_rate
                 FROM strategy_metrics
             """)
             bt_rows = {r[0]: r[1:] for r in cur.fetchall()}
 
-            strategies = sorted(set(list(nav_rows.keys()) + list(bt_rows.keys())))
+            # Only include strategies that have live hypothetical NAV data
+            strategies = sorted(nav_rows.keys())
             records = []
             for strat in strategies:
-                nav = nav_rows.get(strat, PORTFOLIO_USDT)
+                nav = nav_rows[strat]
                 ret_pct = (nav - PORTFOLIO_USDT) / PORTFOLIO_USDT * 100
                 bt = bt_rows.get(strat, (None, None, None, None))
+                wr_raw = bt[3]
                 records.append({
-                    "strategy":       strat,
-                    "live_nav":       round(nav, 2),
+                    "strategy":        strat,
+                    "live_nav":        round(nav, 2),
                     "live_return_pct": round(ret_pct, 2),
-                    "live_trades":    trade_counts.get(strat, 0),
-                    "live_win_rate":  None,
-                    "sharpe":         round(float(bt[0]), 3) if bt[0] is not None else None,
-                    "sortino":        round(float(bt[1]), 3) if bt[1] is not None else None,
-                    "max_drawdown":   round(float(bt[2]), 4) if bt[2] is not None else None,
-                    "win_rate":       round(float(bt[3]), 3) if bt[3] is not None else None,
+                    "live_trades":     trade_counts.get(strat, 0),
+                    "sharpe":          round(float(bt[0]), 3) if bt[0] is not None else None,
+                    "sortino":         round(float(bt[1]), 3) if bt[1] is not None else None,
+                    "max_drawdown":    round(float(bt[2]) * 100, 2) if bt[2] is not None else None,
+                    "win_rate_pct":    round(float(wr_raw) * 100, 1) if wr_raw is not None else None,
                 })
 
             return pd.DataFrame(records, columns=cols)

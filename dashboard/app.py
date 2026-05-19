@@ -351,14 +351,14 @@ def _tab_strategy_performance() -> dbc.Container:
                     dash_table.DataTable(
                         id="strategy-summary-table",
                         columns=[
-                            {"name": "Strategy",       "id": "strategy"},
-                            {"name": "Live NAV ($)",   "id": "live_nav"},
-                            {"name": "Live Return %",  "id": "live_return_pct"},
-                            {"name": "Live Trades",    "id": "live_trades"},
-                            {"name": "Sharpe",         "id": "sharpe"},
-                            {"name": "Sortino",        "id": "sortino"},
-                            {"name": "Max DD",         "id": "max_drawdown"},
-                            {"name": "Win Rate (BT)",  "id": "win_rate"},
+                            {"name": "Strategy",        "id": "strategy"},
+                            {"name": "Live NAV ($)",    "id": "live_nav"},
+                            {"name": "Live Return %",   "id": "live_return_pct"},
+                            {"name": "Live Trades",     "id": "live_trades"},
+                            {"name": "Sharpe",          "id": "sharpe"},
+                            {"name": "Sortino",         "id": "sortino"},
+                            {"name": "Max DD %",        "id": "max_drawdown"},
+                            {"name": "Win Rate % (BT)", "id": "win_rate_pct"},
                         ],
                         data=[],
                         style_header=TABLE_STYLE_HEADER,
@@ -870,13 +870,23 @@ def update_backtest_tab(n_intervals):
     ]
 
     if not metrics_df.empty:
-        # Round numeric columns for display
+        pct_cols = {"win_rate", "max_drawdown", "total_return", "cagr"}
         for col in display_cols[1:]:
-            if col in metrics_df.columns:
-                metrics_df[col] = metrics_df[col].round(4)
+            if col not in metrics_df.columns:
+                continue
+            if col in pct_cols:
+                metrics_df[col] = (metrics_df[col] * 100).round(2)
+            else:
+                metrics_df[col] = metrics_df[col].round(3)
         available_cols = [c for c in display_cols if c in metrics_df.columns]
-        metrics_data   = metrics_df[available_cols].to_dict("records")
-        metrics_cols   = [{"name": c.replace("_", " ").title(), "id": c} for c in available_cols]
+        col_labels = {
+            "strategy": "Strategy", "sharpe": "Sharpe", "sortino": "Sortino",
+            "calmar": "Calmar", "cagr": "CAGR %", "max_drawdown": "Max DD %",
+            "total_return": "Total Return %", "win_rate": "Win Rate %",
+            "profit_factor": "Profit Factor",
+        }
+        metrics_data = metrics_df[available_cols].to_dict("records")
+        metrics_cols = [{"name": col_labels.get(c, c), "id": c} for c in available_cols]
     else:
         metrics_data = []
         metrics_cols = [{"name": c.replace("_", " ").title(), "id": c} for c in display_cols]
