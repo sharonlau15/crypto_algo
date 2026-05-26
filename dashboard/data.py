@@ -342,8 +342,8 @@ def get_strategy_summary() -> pd.DataFrame:
                 wr_raw = bt[3]
                 records.append({
                     "strategy":        strat,
-                    "live_nav":        round(nav, 2),
-                    "live_return_pct": round(ret_pct, 2),
+                    "live_nav":        round(nav, 4),
+                    "live_return_pct": round(ret_pct, 4),
                     "live_trades":     trade_counts.get(strat, 0),
                     "sharpe":          round(float(bt[0]), 3) if bt[0] is not None else None,
                     "sortino":         round(float(bt[1]), 3) if bt[1] is not None else None,
@@ -356,6 +356,41 @@ def get_strategy_summary() -> pd.DataFrame:
     except Exception as e:
         logger.error(f"get_strategy_summary failed: {e}")
         return pd.DataFrame(columns=cols)
+
+
+# ── Connection health ─────────────────────────────────────────────────────────
+
+def get_connection_status() -> dict:
+    """
+    Returns DB and Binance connectivity status.
+    Each value is a dict with keys: ok (bool), detail (str).
+    """
+    status = {"db": {"ok": False, "detail": ""}, "binance": {"ok": False, "detail": ""}}
+
+    # DB check
+    try:
+        with _db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT updated_at FROM engine_controls WHERE id = 1")
+            row = cur.fetchone()
+            last = str(row[0]) if row and row[0] else "never"
+            status["db"] = {"ok": True, "detail": f"Connected — last control update: {last}"}
+    except Exception as e:
+        status["db"] = {"ok": False, "detail": str(e)[:120]}
+
+    # Binance check
+    try:
+        from config.client import get_client
+        client = get_client(for_trading=False)
+        info = client.futures_account()
+        balance = next(
+            (float(a["balance"]) for a in info.get("assets", []) if a["asset"] == "USDT"), 0.0
+        )
+        status["binance"] = {"ok": True, "detail": f"Connected — USDT balance: ${balance:,.2f}"}
+    except Exception as e:
+        status["binance"] = {"ok": False, "detail": str(e)[:120]}
+
+    return status
 
 
 # ── Engine controls ───────────────────────────────────────────────────────────

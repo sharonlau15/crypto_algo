@@ -26,6 +26,7 @@ from config.settings import (
 )
 from dashboard.data import (
     get_all_hyp_strategies,
+    get_connection_status,
     get_current_prices,
     get_engine_controls,
     get_hypothetical_nav,
@@ -318,7 +319,28 @@ def _tab_risk_controls() -> dbc.Container:
         ]),
     ], className="mb-3", style=CARD_STYLE)
 
+    connection_card = dbc.Card([
+        dbc.CardHeader(html.H5("Connection Status", className="mb-0")),
+        dbc.CardBody([
+            dbc.Row([
+                dbc.Col([
+                    html.Span("Binance: ", className="text-muted"),
+                    html.Span(id="binance-status-text"),
+                    html.Br(),
+                    html.Small(id="binance-status-detail", className="text-muted"),
+                ], width=6),
+                dbc.Col([
+                    html.Span("Database: ", className="text-muted"),
+                    html.Span(id="db-status-text"),
+                    html.Br(),
+                    html.Small(id="db-status-detail", className="text-muted"),
+                ], width=6),
+            ]),
+        ]),
+    ], className="mb-3", style=CARD_STYLE)
+
     return dbc.Container([
+        dbc.Row([dbc.Col(connection_card, width=12)]),
         dbc.Row([dbc.Col(kill_switch_card, width=12)]),
         dbc.Row([dbc.Col(override_card,    width=12)]),
     ], fluid=True)
@@ -929,7 +951,35 @@ def update_backtest_tab(n_intervals):
     return metrics_data, metrics_cols, fig
 
 
-# ── Callback 9 — Strategy performance overview ────────────────────────────────
+# ── Callback 9 — Connection status ───────────────────────────────────────────
+
+@app.callback(
+    Output("binance-status-text",  "children"),
+    Output("binance-status-text",  "style"),
+    Output("binance-status-detail","children"),
+    Output("db-status-text",       "children"),
+    Output("db-status-text",       "style"),
+    Output("db-status-detail",     "children"),
+    Input("refresh-interval", "n_intervals"),
+)
+def update_connection_status(n_intervals):
+    s = get_connection_status()
+    ok_style  = {"color": "#28a745", "fontWeight": "bold"}
+    err_style = {"color": "#dc3545", "fontWeight": "bold"}
+
+    b = s["binance"]
+    d = s["db"]
+    return (
+        "CONNECTED"    if b["ok"] else "DISCONNECTED",
+        ok_style       if b["ok"] else err_style,
+        b["detail"],
+        "CONNECTED"    if d["ok"] else "DISCONNECTED",
+        ok_style       if d["ok"] else err_style,
+        d["detail"],
+    )
+
+
+# ── Callback 10 — Strategy performance overview ───────────────────────────────
 
 STRAT_COLOURS = [
     "#00b4d8", "#f4a261", "#2ec4b6", "#e71d36", "#ff9f1c",

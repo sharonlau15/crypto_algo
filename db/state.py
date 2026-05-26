@@ -243,18 +243,24 @@ def save_state(state: dict):
                     row.get("order_id"),
                 ))
 
-            # Hypothetical portfolios — append new nav and trade entries per strategy
-            hyp_counts = state.get("_hyp_counts", {})
+            # Hypothetical portfolios — append only NEW nav and trade entries per strategy.
+            # CRITICAL: update _hyp_counts after each write so subsequent save_state()
+            # calls don't re-insert from offset 0 and duplicate all rows.
+            hyp_counts = state.setdefault("_hyp_counts", {})
             for name, hyp in state.get("hypothetical", {}).items():
-                nav_offset = hyp_counts.get(name, {}).get("nav", 0)
-                for row in hyp.get("nav_history", [])[nav_offset:]:
+                nav_list     = hyp.get("nav_history", [])
+                trade_list   = hyp.get("trade_history", [])
+                nav_offset   = hyp_counts.get(name, {}).get("nav", 0)
+                trade_offset = hyp_counts.get(name, {}).get("trades", 0)
+
+                for row in nav_list[nav_offset:]:
                     cur.execute("""
                         INSERT INTO hypothetical_nav (strategy, recorded_at, nav)
                         VALUES (%s, %s, %s)
+                        ON CONFLICT DO NOTHING
                     """, (name, row.get("date"), row.get("nav")))
 
-                trade_offset = hyp_counts.get(name, {}).get("trades", 0)
-                for row in hyp.get("trade_history", [])[trade_offset:]:
+                for row in trade_list[trade_offset:]:
                     price = row.get("price") or 0.0
                     qty   = row.get("qty")
                     if qty is None:
@@ -272,6 +278,12 @@ def save_state(state: dict):
                         qty,
                         price,
                     ))
+
+                # Advance watermarks so next call only writes truly new rows
+                hyp_counts[name] = {
+                    "nav":    len(nav_list),
+                    "trades": len(trade_list),
+                }
 
     except Exception as e:
         logger.error(f"DB save_state failed: {e}")
