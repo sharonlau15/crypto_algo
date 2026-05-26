@@ -378,15 +378,15 @@ def get_connection_status() -> dict:
     except Exception as e:
         status["db"] = {"ok": False, "detail": str(e)[:120]}
 
-    # Binance check
+    # Binance check — ping real endpoint for connectivity, demo client for auth
+    # (PAPER_TRADING=True: engine uses demo/testnet; real_client has no secret)
     try:
-        from config.client import get_client
-        client = get_client(for_trading=False)
-        info = client.futures_account()
-        balance = next(
-            (float(a["balance"]) for a in info.get("assets", []) if a["asset"] == "USDT"), 0.0
-        )
-        status["binance"] = {"ok": True, "detail": f"Connected — USDT balance: ${balance:,.2f}"}
+        from config.client import get_client, real_client, demo_client
+        real_client.ping()   # unauthenticated — confirms network reachability
+        # Auth check via demo client (testnet) — same creds the engine uses
+        balances = demo_client.futures_account_balance()
+        usdt = next((float(b["balance"]) for b in balances if b["asset"] == "USDT"), 0.0)
+        status["binance"] = {"ok": True, "detail": f"Testnet connected — USDT balance: ${usdt:,.2f}"}
     except Exception as e:
         status["binance"] = {"ok": False, "detail": str(e)[:120]}
 
