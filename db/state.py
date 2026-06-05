@@ -114,18 +114,27 @@ def load_state() -> dict | None:
             state["_nav_db_count"]   = len(state["nav_history"])
             state["_trade_db_count"] = len(state["trade_log"])
 
-            # Hypothetical portfolios — current nav + recent history
+            # Hypothetical portfolios — current nav + recent history + persisted weights
             cur.execute("SELECT DISTINCT strategy FROM hypothetical_nav")
             strategies = [r[0] for r in cur.fetchall()]
 
+            # Load persisted weights/prices so nav computation survives restarts
+            cur.execute("""
+                SELECT strategy, nav, weights, last_prices, entry_prices
+                FROM hypothetical_strategy_state
+            """)
+            hyp_live: dict = {
+                r[0]: {
+                    "nav":          float(r[1]),
+                    "weights":      r[2] if isinstance(r[2], dict) else {},
+                    "last_prices":  r[3] if isinstance(r[3], dict) else {},
+                    "entry_prices": r[4] if isinstance(r[4], dict) else {},
+                }
+                for r in cur.fetchall()
+            }
+
             hyp_counts: dict = {}
             for strat in strategies:
-                cur.execute("""
-                    SELECT nav FROM hypothetical_nav
-                    WHERE strategy = %s ORDER BY recorded_at DESC LIMIT 1
-                """, (strat,))
-                nav_row = cur.fetchone()
-
                 cur.execute("""
                     SELECT recorded_at, nav FROM hypothetical_nav
                     WHERE strategy = %s
@@ -153,13 +162,14 @@ def load_state() -> dict | None:
                     for r in reversed(cur.fetchall())
                 ]
 
+                live = hyp_live.get(strat, {})
                 state["hypothetical"][strat] = {
-                    "nav":           float(nav_row[0]) if nav_row else PORTFOLIO_USDT,
+                    "nav":           live.get("nav", PORTFOLIO_USDT),
                     "nav_history":   nav_hist,
                     "trade_history": trade_hist,
-                    "weights":       {},
-                    "last_prices":   {},
-                    "entry_prices":  {},
+                    "weights":       live.get("weights", {}),
+                    "last_prices":   live.get("last_prices", {}),
+                    "entry_prices":  live.get("entry_prices", {}),
                 }
                 hyp_counts[strat] = {
                     "nav":    len(nav_hist),
@@ -284,6 +294,25 @@ def save_state(state: dict):
                     "nav":    len(nav_list),
                     "trades": len(trade_list),
                 }
+
+                # Persist weights + prices so nav survives engine restarts
+                cur.execute("""
+                    INSERT INTO hypothetical_strategy_state
+                        (strategy, nav, weights, last_prices, entry_prices, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (strategy) DO UPDATE SET
+                        nav          = EXCLUDED.nav,
+                        weights      = EXCLUDED.weights,
+                        last_prices  = EXCLUDED.last_prices,
+                        entry_prices = EXCLUDED.entry_prices,
+                        updated_at   = NOW()
+                """, (
+                    name,
+                    hyp.get("nav", PORTFOLIO_USDT),
+                    json.dumps(hyp.get("weights", {})),
+                    json.dumps(hyp.get("last_prices", {})),
+                    json.dumps(hyp.get("entry_prices", {})),
+                ))
 
     except Exception as e:
         logger.error(f"DB save_state failed: {e}")
