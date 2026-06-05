@@ -99,7 +99,7 @@ def _tab_live_overview() -> dbc.Container:
     ]
     trades_columns = [
         {"name": c, "id": c}
-        for c in ["executed_at", "symbol", "side", "qty", "price", "reason"]
+        for c in ["executed_at", "symbol", "side", "qty", "price", "reason", "strategy"]
     ]
     return dbc.Container([
         # ── Stat cards ────────────────────────────────────────────────────────
@@ -190,8 +190,9 @@ def _tab_live_overview() -> dbc.Container:
                         style_data=TABLE_STYLE_DATA,
                         style_cell={"textAlign": "right", "padding": "4px 8px", "fontSize": "0.8rem"},
                         style_cell_conditional=[
-                            {"if": {"column_id": "symbol"}, "textAlign": "left"},
-                            {"if": {"column_id": "reason"}, "textAlign": "left"},
+                            {"if": {"column_id": "symbol"},   "textAlign": "left"},
+                            {"if": {"column_id": "reason"},   "textAlign": "left"},
+                            {"if": {"column_id": "strategy"}, "textAlign": "left"},
                         ],
                         style_data_conditional=[
                             {"if": {"filter_query": '{side} = "BUY"'},  "color": "#28a745"},
@@ -629,7 +630,7 @@ def update_live_tab(n_intervals):
         trades_data = []
         trades_cols = [
             {"name": c, "id": c}
-            for c in ["executed_at", "symbol", "side", "qty", "price", "reason"]
+            for c in ["executed_at", "symbol", "side", "qty", "price", "reason", "strategy"]
         ]
 
     now_str = f"Updated {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"

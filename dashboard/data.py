@@ -156,27 +156,28 @@ def get_nav_history(hours: int = 48) -> pd.DataFrame:
 def get_trade_log(limit: int = 50) -> pd.DataFrame:
     """
     Return the `limit` most recent trade log entries.
-    Columns: executed_at, symbol, side, qty, price, reason.
+    Columns: executed_at, symbol, side, qty, price, reason, strategy.
     """
+    cols = ["executed_at", "symbol", "side", "qty", "price", "reason", "strategy"]
     try:
         with _db() as conn:
             cur = conn.cursor()
             cur.execute("""
-                SELECT executed_at, symbol, side, qty, price, reason
+                SELECT executed_at, symbol, side, qty, price, reason, strategy
                 FROM trade_log
                 ORDER BY executed_at DESC
                 LIMIT %s
             """, (limit,))
             rows = cur.fetchall()
             if not rows:
-                return pd.DataFrame(columns=["executed_at", "symbol", "side", "qty", "price", "reason"])
-            df = pd.DataFrame(rows, columns=["executed_at", "symbol", "side", "qty", "price", "reason"])
+                return pd.DataFrame(columns=cols)
+            df = pd.DataFrame(rows, columns=cols)
             df["qty"]   = pd.to_numeric(df["qty"],   errors="coerce")
             df["price"] = pd.to_numeric(df["price"], errors="coerce")
             return df
     except Exception as e:
         logger.error(f"get_trade_log failed: {e}")
-        return pd.DataFrame(columns=["executed_at", "symbol", "side", "qty", "price", "reason"])
+        return pd.DataFrame(columns=cols)
 
 
 # ── Strategy metrics ──────────────────────────────────────────────────────────

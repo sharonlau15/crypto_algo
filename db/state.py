@@ -92,7 +92,7 @@ def load_state() -> dict | None:
 
             # Recent trade_log (last 500)
             cur.execute("""
-                SELECT executed_at, symbol, side, qty, price, reason, order_id
+                SELECT executed_at, symbol, side, qty, price, reason, order_id, strategy
                 FROM trade_log
                 ORDER BY executed_at DESC LIMIT 500
             """)
@@ -106,6 +106,7 @@ def load_state() -> dict | None:
                     "price":    float(r[4]),
                     "reason":   r[5],
                     "order_id": r[6],
+                    "strategy": r[7],
                 }
                 for r in reversed(rows)
             ]
@@ -241,8 +242,8 @@ def save_state(state: dict):
             for row in state.get("trade_log", [])[trade_offset:]:
                 cur.execute("""
                     INSERT INTO trade_log
-                        (executed_at, symbol, side, qty, price, reason, order_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        (executed_at, symbol, side, qty, price, reason, order_id, strategy)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     row.get("time"),
                     row.get("symbol"),
@@ -251,6 +252,7 @@ def save_state(state: dict):
                     row.get("price"),
                     row.get("reason"),
                     row.get("order_id"),
+                    row.get("strategy"),
                 ))
 
             # Hypothetical portfolios — append only NEW nav and trade entries per strategy.
@@ -332,7 +334,7 @@ def load_trade_log_for_report() -> list[dict]:
     with _db() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT executed_at, symbol, side, qty, price, reason, order_id
+            SELECT executed_at, symbol, side, qty, price, reason, order_id, strategy
             FROM trade_log ORDER BY executed_at
         """)
         return [
@@ -344,6 +346,7 @@ def load_trade_log_for_report() -> list[dict]:
                 "price":    float(r[4]),
                 "reason":   r[5],
                 "order_id": r[6],
+                "strategy": r[7],
             }
             for r in cur.fetchall()
         ]
