@@ -450,26 +450,32 @@ def blend_signals(
     close:           pd.DataFrame,
 ) -> pd.DataFrame:
     """
-    Combine multiple strategy signals into a single blended signal matrix.
+    Combine strategy signals into a blended signal matrix.
 
-    Parameters
-    ----------
-    signals_dict : dict mapping strategy_name → signal DataFrame
-    selection    : list of (name, blend_weight) from select_strategy()
-    close        : reference DataFrame for index/columns alignment
+    Each strategy's signal is L1-normalised per bar before blending so that
+    a strategy with blend_weight=0.5 contributes exactly 50% of the portfolio's
+    gross directional signal regardless of raw magnitude differences.
 
-    Returns
-    -------
-    pd.DataFrame — blended signal matrix, same shape as close
+    Without this, momentum (sum|signal|=8) would dominate a 50/50 blend with
+    sentiment (sum|signal|=1) by 89%/11% despite equal blend weights.
+
+    Bars where a strategy's total signal is zero are treated as flat (no signal),
+    not penalised — the other strategy's signal carries that bar at full weight.
     """
-    blended = pd.DataFrame(0.0, index=close.index, columns=close.columns)
+    blended      = pd.DataFrame(0.0, index=close.index, columns=close.columns)
     total_weight = sum(w for _, w in selection)
 
     for name, weight in selection:
         if name not in signals_dict:
             logger.warning(f"blend_signals: {name} not found in signals_dict")
             continue
-        sig = signals_dict[name].reindex_like(close).fillna(0)
-        blended += sig * (weight / total_weight)
+
+        sig   = signals_dict[name].reindex_like(close).fillna(0)
+        gross = sig.abs().sum(axis=1)          # sum(|s_i|) per bar
+
+        # Normalise to unit L1 gross; bars with no signal stay zero
+        sig_norm = sig.div(gross.replace(0, np.nan), axis=0).fillna(0)
+
+        blended += sig_norm * (weight / total_weight)
 
     return blended.clip(-1, 1)
