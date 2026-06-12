@@ -865,8 +865,8 @@ def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: d
     else:
         missing_cols = [s for s in UNIVERSE if s not in funding.columns]
         last_ts      = funding.index[-1]
-        last_naive   = pd.Timestamp(last_ts).replace(tzinfo=None)  # already UTC, just strip tz
-        age_hours    = (pd.Timestamp.utcnow() - last_naive).total_seconds() / 3600
+        last_utc     = last_ts if last_ts.tzinfo else pd.Timestamp(last_ts, tz="UTC")
+        age_hours    = (pd.Timestamp.now(tz="UTC") - last_utc).total_seconds() / 3600
         logger.info(
             f"Funding data: shape={funding.shape} | "
             f"last={last_ts} ({age_hours:.1f}h ago)"
