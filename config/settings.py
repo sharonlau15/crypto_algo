@@ -83,7 +83,7 @@ DOLLAR_NEUTRAL      = False         # Not required per spec
 RISK_LOOKBACK_DAYS  = 180           # 6M covariance — recent conditions matter more in crypto
 REBALANCE_FREQ      = "1d"          # Daily rebalance (T+1 execution)
 MAX_POSITION_SIZE   = 0.20          # Single token cap at 20% (forces ≥5 positions)
-TRANSACTION_COST_BP = 10            # 10 bps round-trip (Binance maker/taker)
+TRANSACTION_COST_BP = 10            # 10 bps round-trip (Binance taker 5bps × 2)
 
 # ── Position-Level Risk Management ─────────────────────────────────────────────
 STOP_LOSS_PCT       = 0.06          # 6% hard stop — daily-bar signals need room; 2% fired on noise
@@ -94,7 +94,8 @@ USE_TRAILING_STOP   = True          # Whether to use trailing stops
 # ── Execution ──────────────────────────────────────────────────────────────────
 PAPER_TRADING       = True          # True = demo trading, False = live (NEVER set False in dev)
 ORDER_TYPE          = "MARKET"      # MARKET | LIMIT
-SLIPPAGE_BP         = 5             # Assumed slippage in backtest
+SLIPPAGE_BP         = 15            # Market-order slippage: 5bp was too optimistic for thin alts
+                                    # (ATOM/DOT/ADA/LTC realistic: 10-20bp). Total cost = 25bp.
 FUTURES_LEVERAGE    = 1             # 1x = spot-equivalent risk; increase only if intentional
 PORTFOLIO_USDT      = 10_000        # Baseline for hypothetical paper portfolios only.
                                     # Live account capital is read from Binance — not this value.

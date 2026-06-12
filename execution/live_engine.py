@@ -859,6 +859,19 @@ def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: d
         logger.error(f"Data fetch failed — skipping this cycle: {e}")
         return
 
+    # Funding diagnostic — carry and exhaustion_fade return flat if this is empty/stale.
+    if funding is None or funding.empty:
+        logger.warning("FUNDING DATA EMPTY — carry and exhaustion_fade will return flat signals")
+    else:
+        missing_cols = [s for s in UNIVERSE if s not in funding.columns]
+        last_ts      = funding.index[-1]
+        age_hours    = (pd.Timestamp.utcnow() - pd.Timestamp(last_ts, tz="UTC")).total_seconds() / 3600
+        logger.info(
+            f"Funding data: shape={funding.shape} | "
+            f"last={last_ts} ({age_hours:.1f}h ago)"
+            + (f" | MISSING SYMBOLS: {missing_cols}" if missing_cols else "")
+        )
+
     # 2. Recompute all strategy signals
     logger.info(f"Recomputing signals for {len(strategies)} strategies...")
     high_df = pd.DataFrame({s: universe_data[s]["high"] for s in universe_data})

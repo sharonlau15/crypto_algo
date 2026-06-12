@@ -207,20 +207,31 @@ def get_universe_funding_rates() -> pd.DataFrame:
 
     Returns
     -------
-    pd.DataFrame: index=date, columns=symbols
+    pd.DataFrame: index=date, columns=symbols (one column per symbol in UNIVERSE)
+    Missing symbols are filled with 0.0 so callers always get a full-width frame.
     """
-    frames = []
+    frames  = {}
+    failed  = []
     for sym in tqdm(UNIVERSE, desc="Fetching funding rates"):
         df = get_funding_rates(sym)
         if not df.empty:
-            # Resample 8h → daily mean
-            daily = df.resample("1D").mean()
-            frames.append(daily)
+            frames[sym] = df.resample("1D").mean()[sym]
+        else:
+            failed.append(sym)
         time.sleep(0.1)
 
+    if failed:
+        logger.warning(f"Funding rate fetch failed for: {failed} — filling with 0.0")
+
     if not frames:
+        logger.error("All funding rate fetches failed — returning zero DataFrame")
         return pd.DataFrame()
 
-    combined = pd.concat(frames, axis=1)
-    combined = combined.sort_index().ffill()
-    return combined
+    combined = pd.DataFrame(frames).sort_index().ffill()
+
+    # Ensure every UNIVERSE symbol is present (fill missing with 0 so carry/fade don't break)
+    for sym in UNIVERSE:
+        if sym not in combined.columns:
+            combined[sym] = 0.0
+
+    return combined[UNIVERSE]
