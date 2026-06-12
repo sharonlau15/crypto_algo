@@ -86,9 +86,9 @@ MAX_POSITION_SIZE   = 0.20          # Single token cap at 20% (forces ≥5 posit
 TRANSACTION_COST_BP = 10            # 10 bps round-trip (Binance maker/taker)
 
 # ── Position-Level Risk Management ─────────────────────────────────────────────
-STOP_LOSS_PCT       = 0.02          # 2% hard stop loss per position
-TAKE_PROFIT_PCT     = 0.03          # 3% take profit target
-TRAILING_STOP_PCT   = 0.05          # 5% trailing stop (0 = disabled)
+STOP_LOSS_PCT       = 0.06          # 6% hard stop — daily-bar signals need room; 2% fired on noise
+TAKE_PROFIT_PCT     = 0.12          # 12% TP — wide enough to let winners run on daily signals
+TRAILING_STOP_PCT   = 0.10          # 10% trailing stop (0 = disabled)
 USE_TRAILING_STOP   = True          # Whether to use trailing stops
 
 # ── Execution ──────────────────────────────────────────────────────────────────
@@ -102,7 +102,7 @@ MIN_ORDER_USDT      = 11            # Binance min notional + buffer
 
 # ── Real-time live trading ─────────────────────────────────────────────────────
 SIGNAL_RECOMPUTE_MINS = 1           # How often to recompute signals and check for rebalance
-PRICE_MONITOR_SECS    = 60          # How often to poll prices for stop/TP monitoring
+PRICE_MONITOR_SECS    = 300         # Poll every 5 min — daily-bar signals; 60s manufactured turnover
 REBALANCE_THRESHOLD   = 0.03        # Min total weight change (sum of |Δw|) to trigger rebalance
 MAX_LIVE_POSITIONS    = 6           # Max number of simultaneous long positions in live trading
 
@@ -173,6 +173,7 @@ STRATEGY_PARAMS = {
 SEASONALITY_MIN_PERIODS  = 24   # Need at least 24 observations per season bucket
 REGIME_MA_WINDOW         = 200  # BTC 200-day MA for bull/bear regime
 STRATEGY_SELECT_METRIC   = "sharpe"  # sharpe | sortino | calmar
+STRATEGY_RESELECT_DAYS   = 30   # Rebalance strategy weights at most monthly
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 LOG_LEVEL   = "INFO"

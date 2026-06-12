@@ -126,8 +126,9 @@ class CrossSectionalMomentumStrategy(BaseStrategy):
 # ══════════════════════════════════════════════════════════════════════════════
 class VolBreakoutStrategy(BaseStrategy):
     """
-    ATR-based channel breakout. Continuous signal proportional to how far
-    price has moved relative to the ATR midpoint, scaled by band half-width.
+    ATR channel breakout: signal = distance of today's close from the
+    rolling `lookback`-day mean, normalised by ATR * multiplier.
+    Positive when price is extended above the channel; negative below.
     Economic justification: volatility expansion after compression signals
     the start of a new directional move.
     """
@@ -153,7 +154,8 @@ class VolBreakoutStrategy(BaseStrategy):
 
         for sym in close.columns:
             atr       = self._atr(high[sym], low[sym], close[sym], p["atr_period"])
-            midpoint  = close[sym].shift(1)
+            # Rolling mean as channel midpoint — measures breakout from a sustained level
+            midpoint  = close[sym].rolling(p["lookback"]).mean().shift(1)
             half_band = (p["atr_multiplier"] * atr).replace(0, np.nan)
             signals[sym] = ((close[sym] - midpoint) / half_band).clip(-1, 1).fillna(0)
 
@@ -423,10 +425,10 @@ class MacroRotationStrategy(BaseStrategy):
 # ══════════════════════════════════════════════════════════════════════════════
 class CarryStrategy(BaseStrategy):
     """
-    Long tokens with highest positive funding (market pays you to hold longs).
-    Short tokens with most negative funding.
+    SHORT tokens with highest positive funding (longs pay; shorts receive the premium).
+    LONG tokens with most negative funding (shorts pay; longs receive the premium).
     Economic justification: funding rate carry is a documented return
-    premium in crypto perpetual markets.
+    premium in crypto perpetual markets — be on the receiving side.
     """
 
     def __init__(self):
@@ -452,8 +454,10 @@ class CarryStrategy(BaseStrategy):
                 continue
             ranked = row.rank(ascending=True)
             n = len(ranked)
-            signals.loc[dt, ranked[ranked >= n - top_n + 1].index] =  1.0
-            signals.loc[dt, ranked[ranked <= top_n].index]          = -1.0
+            # Highest positive funding → SHORT (you receive the premium as short holder)
+            # Most negative funding → LONG (you receive the premium as long holder)
+            signals.loc[dt, ranked[ranked >= n - top_n + 1].index] = -1.0
+            signals.loc[dt, ranked[ranked <= top_n].index]          =  1.0
 
         return signals
 

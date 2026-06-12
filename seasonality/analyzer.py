@@ -23,6 +23,7 @@ from config.settings import (
     SEASONALITY_MIN_PERIODS,
     REGIME_MA_WINDOW,
     STRATEGY_SELECT_METRIC,
+    STRATEGY_RESELECT_DAYS,
     UNIVERSE,
 )
 
@@ -73,6 +74,8 @@ class SeasonalityAnalyzer:
         self.regime_series = classify_regime(btc_close)
         self._monthly: pd.DataFrame | None = None
         self._regime:  pd.DataFrame | None = None
+        self._cached_selection: list | None = None
+        self._selection_date:   pd.Timestamp | None = None
 
     # ── Monthly seasonality ────────────────────────────────────────────────────
     def compute_monthly_seasonality(self) -> pd.DataFrame:
@@ -147,56 +150,49 @@ class SeasonalityAnalyzer:
         self._regime.index.name = "regime"
         return self._regime
 
-    # ── Live performance scoring ───────────────────────────────────────────────
-    def _compute_live_scores(
+    # ── Risk-based weighting ──────────────────────────────────────────────────
+    def _compute_inv_vol_weights(
         self,
+        candidates: list,
         hypotheticals: dict,
-        window_days: int = 2,
-    ) -> tuple[pd.Series, float]:
+        vol_window_days: int = 90,
+    ) -> dict:
         """
-        Compute rolling Sharpe from each strategy's hypothetical NAV history.
-
-        Crypto-tuned defaults:
-          window_days=2  — 48-hour rolling Sharpe (captures current regime)
-          live_weight ramps 0 → 0.70 over 3 days (not 14 — crypto moves fast)
+        Inverse-volatility weights over a 90-day daily-resampled NAV window.
+        Risk-based: lower-vol strategies get more weight; no performance chasing.
+        Falls back to equal weight when data is insufficient.
         """
-        scores    = {}
-        earliest  = None
-
-        for name, hyp in hypotheticals.items():
+        vols = {}
+        for name in candidates:
+            hyp      = hypotheticals.get(name, {})
             nav_hist = hyp.get("nav_history", [])
-            if len(nav_hist) < 3:
-                scores[name] = np.nan
+            if len(nav_hist) < 20:
+                vols[name] = np.nan
                 continue
             try:
-                dates = pd.to_datetime([h["date"] for h in nav_hist])
-                navs  = pd.Series([h["nav"] for h in nav_hist], index=dates).sort_index()
-
-                if earliest is None or navs.index[0] < earliest:
-                    earliest = navs.index[0]
-
-                cutoff = navs.index[-1] - pd.Timedelta(days=window_days)
-                recent = navs[navs.index >= cutoff]
-                if len(recent) < 3:
-                    scores[name] = np.nan
+                dates  = pd.to_datetime([h["date"] for h in nav_hist])
+                navs   = pd.Series([h["nav"] for h in nav_hist], index=dates).sort_index()
+                cutoff = navs.index[-1] - pd.Timedelta(days=vol_window_days)
+                daily  = navs[navs.index >= cutoff].resample("1D").last().dropna()
+                rets   = daily.pct_change().dropna()
+                if len(rets) < 10:
+                    vols[name] = np.nan
                     continue
-
-                rets = recent.pct_change().dropna()
-                scores[name] = float(rets.mean() / rets.std()) if rets.std() > 0 else 0.0
+                vols[name] = float(rets.std() * np.sqrt(365))
             except Exception:
-                scores[name] = np.nan
+                vols[name] = np.nan
 
-        score_series = pd.Series(scores)
+        vol_s = pd.Series(vols).dropna()
+        if vol_s.empty or (vol_s > 0).sum() == 0:
+            w = 1.0 / len(candidates)
+            return {n: w for n in candidates}
 
-        # Ramp live weight: 0% on day 0, caps at 80% after 2 days.
-        # Backtest score acts as a prior / jumpoff point only — live P&L takes over quickly.
-        if earliest is None:
-            live_weight = 0.0
-        else:
-            days_live   = (pd.Timestamp.utcnow() - earliest).total_seconds() / 86400
-            live_weight = float(min(days_live / 2, 0.80))
-
-        return score_series, live_weight
+        # Any missing/zero vol gets the mean vol (conservative, not excluded)
+        mean_vol = float(vol_s.mean())
+        full_vol = {n: (vols.get(n) or mean_vol) for n in candidates}
+        inv_v    = {n: 1.0 / v for n, v in full_vol.items() if v > 0}
+        total    = sum(inv_v.values())
+        return {n: inv_v.get(n, 0) / total for n in candidates}
 
     # ── Strategy selector ──────────────────────────────────────────────────────
     def select_strategy(
@@ -206,44 +202,46 @@ class SeasonalityAnalyzer:
         hypotheticals: dict | None = None,
     ) -> list[tuple[str, float]]:
         """
-        Given the current date, determine the current regime and season,
-        then return the top-N strategies with their selection weights.
+        Select top-N strategies and assign weights.
 
-        Parameters
-        ----------
-        current_date  : pd.Timestamp — defaults to today
-        top_n         : int — how many strategies to blend
-        hypotheticals : dict — live hypothetical state from live_state.json;
-                        when provided, live rolling Sharpe is blended in
-                        (weight ramps 0 → 80% over the first 2 days)
+        Selection uses regime-conditioned backtest Sharpe — which strategies
+        have historically worked in the current market regime.  Weights are
+        set by inverse-volatility over a 90-day NAV window so lower-risk
+        strategies receive more capital (risk-based, not return-chasing).
 
-        Returns
-        -------
-        list of (strategy_name, blend_weight) tuples
+        The result is cached for STRATEGY_RESELECT_DAYS (default 30) so
+        the portfolio does not rotate on every signal cycle.
         """
         if current_date is None:
             current_date = pd.Timestamp.utcnow().normalize()
 
+        # ── Monthly rebalance gate ─────────────────────────────────────────────
+        now = pd.Timestamp.utcnow()
+        if (self._selection_date is not None
+                and self._cached_selection
+                and (now - self._selection_date).days < STRATEGY_RESELECT_DAYS):
+            days_left = STRATEGY_RESELECT_DAYS - (now - self._selection_date).days
+            logger.info(
+                f"Cached selection ({days_left}d until rebalance): {self._cached_selection}"
+            )
+            return self._cached_selection
+
         current_month  = current_date.month
         current_regime = self._get_current_regime(current_date)
 
-        logger.info(f"Strategy selector: date={current_date.date()} | "
+        logger.info(f"Strategy selector REBALANCING: date={current_date.date()} | "
                     f"month={current_month} | regime={current_regime}")
 
-        # Regime-based Sharpe scores
+        # ── Regime-conditioned backtest Sharpe ────────────────────────────────
         if self._regime is None:
             self.compute_regime_performance()
-
         regime_scores = self._regime.loc[current_regime].dropna()
 
-        # Monthly seasonality bonus
         if self._monthly is None:
             self.compute_monthly_seasonality()
+        monthly_scores = (self._monthly.loc[current_month].dropna()
+                          if current_month in self._monthly.index else pd.Series())
 
-        monthly_scores = self._monthly.loc[current_month].dropna() \
-            if current_month in self._monthly.index else pd.Series()
-
-        # Backtest score: 70% regime Sharpe + 30% monthly seasonality
         combined = {}
         for strat in regime_scores.index:
             try:
@@ -253,57 +251,32 @@ class SeasonalityAnalyzer:
             except (KeyError, ValueError, TypeError):
                 combined[strat] = 0.0
 
-        backtest_scores = pd.Series(combined).dropna()
+        backtest_scores = pd.Series(combined).dropna().sort_values(ascending=False)
 
-        # Blend in live scores when hypothetical data is available
+        if backtest_scores.empty:
+            logger.warning("No strategy scored — defaulting to momentum")
+            result = [("momentum", 1.0)]
+            self._cached_selection = result
+            self._selection_date   = now
+            return result
+
+        # ── Pick candidates by backtest score, weight by inverse-vol ─────────
+        candidates = backtest_scores.head(top_n).index.tolist()
+
         if hypotheticals:
-            live_scores, live_weight = self._compute_live_scores(hypotheticals)
-            valid_live = live_scores.dropna()
-
-            if live_weight > 0 and not valid_live.empty:
-                # Normalise live scores to backtest scale (z-score so units match)
-                if valid_live.std() > 0:
-                    live_norm = (valid_live - valid_live.mean()) / valid_live.std()
-                    # Rescale to backtest score range
-                    if backtest_scores.std() > 0:
-                        live_norm = live_norm * backtest_scores.std() + backtest_scores.mean()
-                else:
-                    live_norm = valid_live
-
-                blended = {}
-                for strat in backtest_scores.index:
-                    bt  = float(backtest_scores.loc[strat])
-                    lv  = float(live_norm.loc[strat]) if strat in live_norm.index else bt
-                    blended[strat] = (1 - live_weight) * bt + live_weight * lv
-                combined_scores = pd.Series(blended).dropna()
-                logger.info(
-                    f"Live score blend: live_weight={live_weight:.0%} "
-                    f"(ramps to 80% over 2 days)"
-                )
-            else:
-                combined_scores = backtest_scores
-                if hypotheticals:
-                    logger.info("Live scores not yet available — using backtest scores only")
+            weights = self._compute_inv_vol_weights(candidates, hypotheticals)
+            logger.info(f"Inverse-vol weights (90d): {weights}")
         else:
-            combined_scores = backtest_scores
+            w       = 1.0 / len(candidates)
+            weights = {n: w for n in candidates}
+            logger.info("No hypothetical data — equal-weight fallback")
 
-        combined_scores = combined_scores.sort_values(ascending=False)
-
-        if combined_scores.empty:
-            logger.warning("No strategy scored — defaulting to top strategy overall")
-            return [("momentum", 1.0)]
-
-        # Select top N and assign blend weights proportional to score
-        top    = combined_scores.head(top_n)
-        scores = top.clip(lower=0)
-        total  = scores.sum()
-        if total == 0:
-            blend_weights = [1.0 / top_n] * top_n
-        else:
-            blend_weights = (scores / total).tolist()
-
-        selection = list(zip(top.index.tolist(), blend_weights))
+        selection = [(name, round(weights.get(name, 1.0 / top_n), 4))
+                     for name in candidates]
         logger.info(f"Selected strategies: {selection}")
+
+        self._cached_selection = selection
+        self._selection_date   = now
         return selection
 
     def _get_current_regime(self, dt: pd.Timestamp) -> str:

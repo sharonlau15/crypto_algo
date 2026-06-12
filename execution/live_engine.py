@@ -44,6 +44,7 @@ from config.settings import (
     TRAILING_STOP_PCT, USE_TRAILING_STOP,
     SIGNAL_RECOMPUTE_MINS, PRICE_MONITOR_SECS, REBALANCE_THRESHOLD,
     MAX_LIVE_POSITIONS, MAX_POSITION_SIZE, FUTURES_LEVERAGE,
+    TRANSACTION_COST_BP, SLIPPAGE_BP,
 )
 from data.ingestion import get_universe_ohlcv, build_close_matrix, build_return_matrix
 from data.ingestion import get_fear_greed_index, get_universe_funding_rates
@@ -665,6 +666,14 @@ def update_hypotheticals(signals_dict: dict, current_prices: dict, state: dict):
                             "price":       _bp,
                             "hypo_value":  round(prev_nav * abs(pw), 2),
                         })
+
+            # Deduct same transaction costs as live trading so paper Sharpe
+            # is net-of-costs and the selector is not biased toward high-turnover strategies.
+            _turnover = sum(
+                abs(float(new_weights.get(s, 0)) - float(prev_weights.get(s, 0)))
+                for s in UNIVERSE
+            )
+            period_return -= (TRANSACTION_COST_BP + SLIPPAGE_BP) / 10_000 * _turnover
 
             new_nav = round(prev_nav * (1 + period_return), 2)
             ret_pct = (new_nav - PORTFOLIO_USDT) / PORTFOLIO_USDT * 100
