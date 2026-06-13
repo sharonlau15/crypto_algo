@@ -41,28 +41,53 @@ class MomentumStrategy(BaseStrategy):
 
     def __init__(self):
         super().__init__("momentum", STRATEGY_PARAMS["momentum"])
+        self.freeze_between_bands = True
 
     def generate_signals(self, close, returns, **kwargs):
-        p = self.params
+        p     = self.params
         lb_long  = p["lookback_long"]
         lb_short = p["lookback_short"]
         top_n    = p["top_n"]
         bot_n    = p["bottom_n"]
+        hyst     = p.get("hysteresis", 1)   # extra ranks to cross before exiting
 
         ret_long  = close / close.shift(lb_long)  - 1
         ret_short = close / close.shift(lb_short) - 1
         score = ret_long - ret_short
 
         signals = pd.DataFrame(0.0, index=close.index, columns=close.columns)
+        state   = {sym: 0 for sym in close.columns}
 
         for dt in score.index:
             row = score.loc[dt].dropna()
             if len(row) < top_n + bot_n:
                 continue
+
             ranked = row.rank(ascending=True)
-            n = len(ranked)
-            signals.loc[dt, ranked[ranked >= n - top_n + 1].index]  =  1.0
-            signals.loc[dt, ranked[ranked <= bot_n].index]           = -1.0
+            n      = len(ranked)
+
+            for sym in close.columns:
+                if sym not in ranked.index:
+                    state[sym] = 0
+                    continue
+
+                r = ranked[sym]
+
+                if state[sym] == 0:
+                    if r >= n - top_n + 1:        # top N  → enter long
+                        state[sym] = 1
+                    elif r <= bot_n:              # bottom N → enter short
+                        state[sym] = -1
+                elif state[sym] == 1:
+                    # Exit long only when rank falls hyst positions below entry threshold
+                    if r < n - top_n + 1 - hyst:
+                        state[sym] = 0
+                elif state[sym] == -1:
+                    # Exit short only when rank rises hyst positions above entry threshold
+                    if r > bot_n + hyst:
+                        state[sym] = 0
+
+            signals.loc[dt] = pd.Series(state)
 
         return signals
 
@@ -82,6 +107,7 @@ class MeanReversionStrategy(BaseStrategy):
 
     def __init__(self):
         super().__init__("mean_reversion", STRATEGY_PARAMS["mean_reversion"])
+        self.freeze_between_bands = True
 
     def generate_signals(self, close, returns, **kwargs):
         p  = self.params

@@ -116,6 +116,7 @@ STRATEGY_PARAMS = {
         "lookback_short": 21,    # Skip last month (reversal filter)
         "top_n":          4,     # Long top N tokens
         "bottom_n":       4,     # Short bottom N tokens
+        "hysteresis":     1,     # Extra ranks to cross before exiting (reduces churn)
     },
     "mean_reversion": {
         "zscore_window":  20,

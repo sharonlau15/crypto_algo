@@ -34,9 +34,10 @@ class BaseStrategy(ABC):
     """
 
     def __init__(self, name: str, params: dict):
-        self.name   = name
-        self.params = params
+        self.name                 = name
+        self.params               = params
         self._signal_cache: pd.DataFrame | None = None
+        self.freeze_between_bands = False   # set True in subclass for band-freeze engine mode
 
     @abstractmethod
     def generate_signals(

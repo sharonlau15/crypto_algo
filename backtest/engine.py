@@ -32,7 +32,7 @@ from loguru import logger
 from config.settings import (
     TRANSACTION_COST_BP, SLIPPAGE_BP,
     RISK_LOOKBACK_DAYS, MIN_ANNUALIZED_VOL,
-    MAX_WEIGHT_SUM, LONG_SHORT,
+    MAX_WEIGHT_SUM, LONG_SHORT, MAX_POSITION_SIZE,
     BACKTEST_TEST_START, REBALANCE_THRESHOLD, RESULT_DIR,
 )
 
@@ -172,75 +172,160 @@ class WalkForwardBacktester:
         self.optimizer  = optimizer
         self.rebal_freq = rebal_freq
 
-    def run(self, strategy_name: str = "unnamed") -> BacktestResult:
-        logger.info(f"Backtesting: {strategy_name}")
+    def run(self, strategy_name: str = "unnamed",
+            freeze_between_bands: bool = False) -> BacktestResult:
+        logger.info(
+            f"Backtesting: {strategy_name}"
+            + (" [band-freeze / inv-vol]" if freeze_between_bands else "")
+        )
 
         weights_history = pd.DataFrame(
             0.0, index=self.close.index, columns=self.close.columns
         )
 
-        # Every calendar day is a candidate rebalance date; the REBALANCE_THRESHOLD
-        # gate below decides whether to actually trade on each day.
         if self.rebal_freq == "1D":
             rebal_dates = self.close.index[RISK_LOOKBACK_DAYS:]
         else:
             rebal_dates = self.close.resample(self.rebal_freq).last().index
 
-        current_weights = pd.Series(0.0, index=self.close.columns)
-        prev_signal     = None
-        rebalance_count = 0
+        current_weights  = pd.Series(0.0, index=self.close.columns)
+        rebalance_count  = 0
+        n_frozen         = 0   # days: direction unchanged, weights held exactly
+        n_band_cross     = 0   # days: direction changed for ≥1 token
+        n_resize_no_band = 0   # (optimizer mode only) rebalance with no direction change
 
-        for dt in rebal_dates:
-            if dt not in self.signals.index:
-                continue
+        # ── Band-freeze mode (momentum / mean_reversion) ──────────────────────
+        # Weights computed once per band-state change using inverse-vol allocation.
+        # Between band events they are frozen unconditionally — no covariance drift.
+        if freeze_between_bands:
+            prev_state = None
 
-            signal_row = self.signals.loc[dt]
+            for dt in rebal_dates:
+                if dt not in self.signals.index:
+                    continue
 
-            # Stage 1 — covariance-drift guard.
-            # If the signal is byte-identical to the last seen signal, the only
-            # thing that could change weights is the daily roll of the covariance
-            # window.  Skip the optimizer entirely; hold existing weights at zero
-            # cost.  This eliminates phantom turnover on signal-flat days.
-            if prev_signal is not None and (signal_row - prev_signal).abs().sum() < 1e-6:
-                weights_history.loc[dt] = current_weights
-                continue
-
-            prev_signal = signal_row.copy()
-
-            hist_end   = self.close.index.get_loc(dt)
-            hist_start = max(0, hist_end - RISK_LOOKBACK_DAYS)
-            cov_matrix = (
-                self.returns.iloc[hist_start:hist_end]
-                .cov() * 365
-            )
-
-            try:
-                new_weights = self.optimizer(
-                    signals    = signal_row,
-                    cov        = cov_matrix,
-                    long_short = LONG_SHORT,
-                )
-                tentative = pd.Series(new_weights).reindex(
+                signal_row = self.signals.loc[dt]
+                new_state  = np.sign(signal_row).fillna(0).reindex(
                     self.close.columns, fill_value=0
                 )
 
-                # Stage 2 — weight-delta gate.
-                # Honor REBALANCE_THRESHOLD on the final weight vector.
-                # Marginal signal wiggles that map to tiny weight adjustments
-                # (< threshold) are discarded — position sizes are frozen until
-                # the optimizer wants to move the portfolio by at least this much.
-                if (tentative - current_weights).abs().sum() >= REBALANCE_THRESHOLD:
-                    current_weights = tentative
+                # No direction change for any token → freeze
+                if prev_state is not None and (new_state - prev_state).abs().sum() < 0.5:
+                    weights_history.loc[dt] = current_weights
+                    n_frozen += 1
+                    continue
+
+                n_band_cross += 1
+                prev_state = new_state.copy()
+
+                # Compute per-symbol annualised vol from rolling window
+                hist_end   = self.close.index.get_loc(dt)
+                hist_start = max(0, hist_end - RISK_LOOKBACK_DAYS)
+                vols = (
+                    self.returns.iloc[hist_start:hist_end]
+                    .std() * np.sqrt(365)
+                ).clip(lower=MIN_ANNUALIZED_VOL)
+
+                longs  = list(self.close.columns[new_state > 0])
+                shorts = list(self.close.columns[new_state < 0])
+                new_w  = pd.Series(0.0, index=self.close.columns)
+
+                if longs:
+                    iv = (1.0 / vols[longs]).replace([np.inf, -np.inf], 0)
+                    if iv.sum() > 0:
+                        lb = 0.5 if shorts else 1.0
+                        new_w[longs] = lb * iv / iv.sum()
+
+                if shorts:
+                    iv = (1.0 / vols[shorts]).replace([np.inf, -np.inf], 0)
+                    if iv.sum() > 0:
+                        sb = 0.5 if longs else 1.0
+                        new_w[shorts] = -sb * iv / iv.sum()
+
+                new_w = new_w.clip(-MAX_POSITION_SIZE, MAX_POSITION_SIZE)
+
+                if (new_w - current_weights).abs().sum() >= REBALANCE_THRESHOLD:
+                    current_weights = new_w
                     rebalance_count += 1
 
-            except Exception as e:
-                logger.warning(
-                    f"Optimizer failed on {dt}: {e} — holding previous weights"
+                weights_history.loc[dt] = current_weights
+
+            total = n_frozen + n_band_cross
+            logger.info(
+                f"  {strategy_name} trigger breakdown — "
+                f"band_crossings: {n_band_cross} ({n_band_cross/max(total,1):.1%}) | "
+                f"frozen: {n_frozen} ({n_frozen/max(total,1):.1%}) | "
+                f"resize_no_band: 0 (impossible in band-freeze mode)"
+            )
+
+        # ── Optimizer mode (all other strategies) ─────────────────────────────
+        else:
+            prev_signal = None
+            prev_state  = None
+
+            for dt in rebal_dates:
+                if dt not in self.signals.index:
+                    continue
+
+                signal_row = self.signals.loc[dt]
+                new_state  = np.sign(signal_row).fillna(0).reindex(
+                    self.close.columns, fill_value=0
                 )
 
-            # Set current_weights on every day (rebalanced or held).
-            # On hold days weights are unchanged → weights.diff() = 0 → no cost charged.
-            weights_history.loc[dt] = current_weights
+                # Stage 1 — covariance-drift guard.
+                if prev_signal is not None and (signal_row - prev_signal).abs().sum() < 1e-6:
+                    weights_history.loc[dt] = current_weights
+                    n_frozen += 1
+                    prev_state = new_state.copy()
+                    continue
+
+                state_changed = (
+                    prev_state is None
+                    or (new_state - prev_state).abs().sum() >= 0.5
+                )
+                prev_signal = signal_row.copy()
+                prev_state  = new_state.copy()
+
+                hist_end   = self.close.index.get_loc(dt)
+                hist_start = max(0, hist_end - RISK_LOOKBACK_DAYS)
+                cov_matrix = (
+                    self.returns.iloc[hist_start:hist_end]
+                    .cov() * 365
+                )
+
+                try:
+                    new_weights = self.optimizer(
+                        signals    = signal_row,
+                        cov        = cov_matrix,
+                        long_short = LONG_SHORT,
+                    )
+                    tentative = pd.Series(new_weights).reindex(
+                        self.close.columns, fill_value=0
+                    )
+
+                    # Stage 2 — weight-delta gate.
+                    if (tentative - current_weights).abs().sum() >= REBALANCE_THRESHOLD:
+                        current_weights = tentative
+                        rebalance_count += 1
+                        if state_changed:
+                            n_band_cross += 1
+                        else:
+                            n_resize_no_band += 1
+
+                except Exception as e:
+                    logger.warning(
+                        f"Optimizer failed on {dt}: {e} — holding previous weights"
+                    )
+
+                weights_history.loc[dt] = current_weights
+
+            total_rebal = n_band_cross + n_resize_no_band
+            logger.info(
+                f"  {strategy_name} trigger breakdown — "
+                f"band_crossings: {n_band_cross} ({n_band_cross/max(total_rebal,1):.1%} of rebalances) | "
+                f"resize_no_band: {n_resize_no_band} ({n_resize_no_band/max(total_rebal,1):.1%} of rebalances) | "
+                f"frozen: {n_frozen}"
+            )
 
         # Forward-fill warmup period and any non-1D gaps.
         weights_history = weights_history.replace(0, np.nan).ffill().fillna(0)
@@ -331,7 +416,10 @@ def run_all_backtests(
             returns   = returns,
             optimizer = optimizer,
         )
-        results[name] = bt.run(strategy_name=name)
+        results[name] = bt.run(
+            strategy_name        = name,
+            freeze_between_bands = getattr(strategy, "freeze_between_bands", False),
+        )
         r = results[name]
         oos = r.oos_metrics
         logger.success(
