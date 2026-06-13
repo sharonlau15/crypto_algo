@@ -10,12 +10,38 @@ import numpy as np
 from pathlib import Path
 from loguru import logger
 
+from config.settings import BACKTEST_TEST_START
+
+
+def _gross_net_table(backtest_results: dict) -> pd.DataFrame:
+    """
+    Build gross OOS Sharpe / net OOS Sharpe / annual turnover table.
+    Requires BacktestResult.gross_oos_metrics and .annual_turnover (populated
+    by engine.py after the REBALANCE_THRESHOLD fix).
+    """
+    rows = []
+    for name, r in backtest_results.items():
+        gross_sh = r.gross_oos_metrics.get("sharpe", np.nan) if r.gross_oos_metrics else np.nan
+        net_sh   = r.oos_metrics.get("sharpe",       np.nan) if r.oos_metrics       else np.nan
+        drag     = round(gross_sh - net_sh, 3) if not (np.isnan(gross_sh) or np.isnan(net_sh)) else np.nan
+        rows.append({
+            "strategy":             name,
+            "gross_sharpe_oos":     gross_sh,
+            "net_sharpe_oos":       net_sh,
+            "cost_drag":            drag,
+            "annual_turnover_pct":  round(r.annual_turnover * 100, 1),
+            "rebalance_days":       r.rebalance_count,
+        })
+    df = pd.DataFrame(rows).set_index("strategy").sort_values("net_sharpe_oos", ascending=False)
+    return df
+
 
 def print_summary_table(
-    metrics_summary: dict,
-    attr_report:     pd.DataFrame,
-    regime_df:       pd.DataFrame,
-    hedge_analysis:  dict,
+    metrics_summary:  dict,
+    attr_report:      pd.DataFrame,
+    regime_df:        pd.DataFrame,
+    hedge_analysis:   dict,
+    backtest_results: dict | None = None,
 ):
     """Print a formatted performance summary to console."""
 
@@ -63,6 +89,13 @@ def print_summary_table(
     if pnl_rows:
         pnl_df = pd.DataFrame(pnl_rows).set_index("Strategy")
         print(pnl_df.to_string())
+
+    if backtest_results is not None:
+        gn = _gross_net_table(backtest_results)
+        print("\n" + "=" * 80)
+        print(f"  GROSS vs NET SHARPE (OOS: {BACKTEST_TEST_START} → today) + ANNUAL TURNOVER")
+        print("=" * 80)
+        print(gn.to_string())
 
     print("\n" + "=" * 80)
     print("  FACTOR ATTRIBUTION (alpha, betas, R²)")
@@ -144,6 +177,10 @@ def save_results(
     # Cumulative returns
     cum_returns = (1 + returns_df).cumprod()
     cum_returns.to_csv(output_dir / "cumulative_returns.csv")
+
+    # Gross vs net Sharpe table
+    gn = _gross_net_table(backtest_results)
+    gn.to_csv(output_dir / "gross_net_sharpe.csv")
 
     logger.success(f"Results saved to {output_dir}")
 

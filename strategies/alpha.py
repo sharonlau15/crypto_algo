@@ -627,12 +627,11 @@ class ExhaustionFadeStrategy(BaseStrategy):
 
 # ── Factory ────────────────────────────────────────────────────────────────────
 def get_all_strategies() -> list[BaseStrategy]:
-    """Return instances of all 10 strategies."""
+    """Return active strategy instances. VolBreakout disabled (OOS win_rate 30.5%)."""
     return [
         MomentumStrategy(),
         MeanReversionStrategy(),
         CrossSectionalMomentumStrategy(),
-        VolBreakoutStrategy(),
         PairsTradingStrategy(),
         MLSignalStrategy(),
         MacroRotationStrategy(),

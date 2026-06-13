@@ -33,7 +33,7 @@ from config.settings import (
     TRANSACTION_COST_BP, SLIPPAGE_BP,
     RISK_LOOKBACK_DAYS, MIN_ANNUALIZED_VOL,
     MAX_WEIGHT_SUM, LONG_SHORT,
-    BACKTEST_TEST_START,
+    BACKTEST_TEST_START, REBALANCE_THRESHOLD, RESULT_DIR,
 )
 
 
@@ -41,15 +41,24 @@ from config.settings import (
 @dataclass
 class BacktestResult:
     strategy_name:     str
-    portfolio_returns: pd.Series          # Full daily P&L series
+    portfolio_returns: pd.Series          # Net daily P&L series (post-cost)
     weights_history:   pd.DataFrame       # w at each rebalance
     signal_history:    pd.DataFrame       # Raw signals
-    metrics:           dict = field(default_factory=dict)   # Full-period metrics
-    in_sample_metrics: dict = field(default_factory=dict)   # In-sample only
-    oos_metrics:       dict = field(default_factory=dict)   # Out-of-sample only
+    gross_returns:     pd.Series          = field(default_factory=pd.Series)
+    annual_turnover:   float              = 0.0   # avg daily |Δw| × 365
+    rebalance_count:   int                = 0
+    metrics:           dict = field(default_factory=dict)   # Full-period net metrics
+    gross_metrics:     dict = field(default_factory=dict)   # Full-period gross metrics
+    in_sample_metrics: dict = field(default_factory=dict)   # In-sample net only
+    oos_metrics:       dict = field(default_factory=dict)   # Out-of-sample net only
+    gross_oos_metrics: dict = field(default_factory=dict)   # Out-of-sample gross only
 
     def __post_init__(self):
         self.metrics = compute_metrics(self.portfolio_returns, self.strategy_name)
+        if len(self.gross_returns) > 0:
+            self.gross_metrics = compute_metrics(
+                self.gross_returns, f"{self.strategy_name}[gross]"
+            )
 
 
 # ── Core metrics ───────────────────────────────────────────────────────────────
@@ -170,69 +179,98 @@ class WalkForwardBacktester:
             0.0, index=self.close.index, columns=self.close.columns
         )
 
-        # Determine rebalance dates
+        # Every calendar day is a candidate rebalance date; the REBALANCE_THRESHOLD
+        # gate below decides whether to actually trade on each day.
         if self.rebal_freq == "1D":
             rebal_dates = self.close.index[RISK_LOOKBACK_DAYS:]
         else:
             rebal_dates = self.close.resample(self.rebal_freq).last().index
 
         current_weights = pd.Series(0.0, index=self.close.columns)
+        prev_signal     = None
+        rebalance_count = 0
 
         for dt in rebal_dates:
             if dt not in self.signals.index:
                 continue
 
-            # Covariance from 1-year lookback
-            hist_end = self.close.index.get_loc(dt)
-            hist_start = max(0, hist_end - RISK_LOOKBACK_DAYS)
-            cov_matrix = (
-                self.returns.iloc[hist_start:hist_end]
-                .cov() * 365
-            )
-
             signal_row = self.signals.loc[dt]
 
-            try:
-                new_weights = self.optimizer(
-                    signals   = signal_row,
-                    cov       = cov_matrix,
-                    long_short = LONG_SHORT,
-                )
-                current_weights = pd.Series(new_weights).reindex(
-                    self.close.columns, fill_value=0
-                )
-            except Exception as e:
-                logger.warning(f"Optimizer failed on {dt}: {e} — holding previous weights")
+            # Only run the optimizer when the signal has changed materially.
+            # This prevents daily covariance drift from generating phantom turnover
+            # that would be charged at 25bps even though no trade was intended.
+            should_rebalance = (prev_signal is None) or (
+                (signal_row - prev_signal).abs().sum() >= REBALANCE_THRESHOLD
+            )
 
-            # T+1 implementation: weight set at dt is used from dt+1 forward
-            # (the signal shift in base.py handles this; weights_history records
-            # the target weight decided on dt)
+            if should_rebalance:
+                prev_signal = signal_row.copy()
+                rebalance_count += 1
+
+                hist_end   = self.close.index.get_loc(dt)
+                hist_start = max(0, hist_end - RISK_LOOKBACK_DAYS)
+                cov_matrix = (
+                    self.returns.iloc[hist_start:hist_end]
+                    .cov() * 365
+                )
+
+                try:
+                    new_weights = self.optimizer(
+                        signals    = signal_row,
+                        cov        = cov_matrix,
+                        long_short = LONG_SHORT,
+                    )
+                    current_weights = pd.Series(new_weights).reindex(
+                        self.close.columns, fill_value=0
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Optimizer failed on {dt}: {e} — holding previous weights"
+                    )
+
+            # Set current_weights on every day (rebalanced or held).
+            # On hold days weights are unchanged → weights.diff() = 0 → no cost charged.
             weights_history.loc[dt] = current_weights
 
-        # Forward-fill weights between rebalance dates
+        # Forward-fill warmup period and any non-1D gaps.
         weights_history = weights_history.replace(0, np.nan).ffill().fillna(0)
 
-        # Portfolio return = sum(w_i * r_i) for each day
-        # Use T+1 forward returns: weights at T earn returns at T+1
-        fwd_returns  = self.returns.shift(-1)
-        port_returns = (weights_history * fwd_returns).sum(axis=1)
-        port_returns = port_returns.iloc[RISK_LOOKBACK_DAYS:-1]  # trim lookahead tail
+        # ── Gross returns (before any transaction costs) ───────────────────────
+        fwd_returns   = self.returns.shift(-1)
+        gross_returns = (weights_history * fwd_returns).sum(axis=1)
+        gross_returns = gross_returns.iloc[RISK_LOOKBACK_DAYS:-1]  # trim lookahead tail
 
-        # Apply transaction costs
-        port_returns = apply_transaction_costs(
-            port_returns,
-            weights_history.loc[port_returns.index],
+        w_trimmed = weights_history.loc[gross_returns.index]
+
+        # ── Net returns (after transaction costs) ──────────────────────────────
+        # Costs are zero on hold days because w_trimmed.diff() = 0 there.
+        net_returns = apply_transaction_costs(gross_returns, w_trimmed)
+
+        # ── Turnover stats ─────────────────────────────────────────────────────
+        turnover        = w_trimmed.diff().abs().sum(axis=1)
+        annual_turnover = float(turnover.mean() * 365)
+        cost_bp_rate    = (TRANSACTION_COST_BP + SLIPPAGE_BP) / 10_000
+        logger.info(
+            f"  {strategy_name}: {rebalance_count} rebalances | "
+            f"annual turnover {annual_turnover:.1%} | "
+            f"annual cost drag {annual_turnover * cost_bp_rate:.3%}"
         )
 
-        # ── Train / test split ─────────────────────────────────────────────────
-        # In-sample:     BACKTEST_START → BACKTEST_TEST_START  (model development)
-        # Out-of-sample: BACKTEST_TEST_START → today           (honest evaluation)
-        test_cutoff = pd.Timestamp(BACKTEST_TEST_START, tz="UTC")
-        in_sample   = port_returns[port_returns.index < test_cutoff]
-        out_sample  = port_returns[port_returns.index >= test_cutoff]
+        # ── Persist weights for gross-Sharpe verification ──────────────────────
+        try:
+            w_trimmed.to_parquet(RESULT_DIR / f"weights_{strategy_name}.parquet")
+        except Exception as e:
+            logger.warning(f"Could not save weights for {strategy_name}: {e}")
 
-        is_metrics  = compute_metrics(in_sample,  f"{strategy_name}[in-sample]")
-        oos_metrics = compute_metrics(out_sample, f"{strategy_name}[out-of-sample]")
+        # ── Train / test split ─────────────────────────────────────────────────
+        test_cutoff = pd.Timestamp(BACKTEST_TEST_START, tz="UTC")
+        net_is      = net_returns[net_returns.index < test_cutoff]
+        net_oos     = net_returns[net_returns.index >= test_cutoff]
+        gross_oos   = gross_returns[gross_returns.index >= test_cutoff]
+
+        is_metrics      = compute_metrics(net_is,    f"{strategy_name}[in-sample]")
+        oos_metrics     = compute_metrics(net_oos,   f"{strategy_name}[out-of-sample]")
+        gross_oos_met   = compute_metrics(gross_oos, f"{strategy_name}[gross-oos]")
 
         if "error" not in oos_metrics:
             logger.info(
@@ -241,18 +279,23 @@ class WalkForwardBacktester:
             )
             logger.info(
                 f"  Out-sample Sharpe={oos_metrics.get('sharpe')} "
-                f"CAGR={oos_metrics.get('cagr')}"
+                f"CAGR={oos_metrics.get('cagr')} | "
+                f"Gross OOS Sharpe={gross_oos_met.get('sharpe')}"
             )
         else:
             logger.info(f"  Out-of-sample period too short to evaluate yet")
 
         return BacktestResult(
             strategy_name     = strategy_name,
-            portfolio_returns = port_returns,
+            portfolio_returns = net_returns,
+            gross_returns     = gross_returns,
             weights_history   = weights_history,
             signal_history    = self.signals,
+            annual_turnover   = annual_turnover,
+            rebalance_count   = rebalance_count,
             in_sample_metrics = is_metrics,
             oos_metrics       = oos_metrics,
+            gross_oos_metrics = gross_oos_met,
         )
 
 

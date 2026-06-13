@@ -137,7 +137,7 @@ def run_backtest_pipeline(use_cache: bool = True):
     metrics_summary = {
         name: result.metrics for name, result in backtest_results.items()
     }
-    print_summary_table(metrics_summary, attr_report, regime_df, hedge_analysis)
+    print_summary_table(metrics_summary, attr_report, regime_df, hedge_analysis, backtest_results)
     save_results(
         backtest_results = backtest_results,
         monthly_df       = monthly_df,
