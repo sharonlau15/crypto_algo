@@ -196,37 +196,47 @@ class WalkForwardBacktester:
 
             signal_row = self.signals.loc[dt]
 
-            # Only run the optimizer when the signal has changed materially.
-            # This prevents daily covariance drift from generating phantom turnover
-            # that would be charged at 25bps even though no trade was intended.
-            should_rebalance = (prev_signal is None) or (
-                (signal_row - prev_signal).abs().sum() >= REBALANCE_THRESHOLD
+            # Stage 1 — covariance-drift guard.
+            # If the signal is byte-identical to the last seen signal, the only
+            # thing that could change weights is the daily roll of the covariance
+            # window.  Skip the optimizer entirely; hold existing weights at zero
+            # cost.  This eliminates phantom turnover on signal-flat days.
+            if prev_signal is not None and (signal_row - prev_signal).abs().sum() < 1e-6:
+                weights_history.loc[dt] = current_weights
+                continue
+
+            prev_signal = signal_row.copy()
+
+            hist_end   = self.close.index.get_loc(dt)
+            hist_start = max(0, hist_end - RISK_LOOKBACK_DAYS)
+            cov_matrix = (
+                self.returns.iloc[hist_start:hist_end]
+                .cov() * 365
             )
 
-            if should_rebalance:
-                prev_signal = signal_row.copy()
-                rebalance_count += 1
-
-                hist_end   = self.close.index.get_loc(dt)
-                hist_start = max(0, hist_end - RISK_LOOKBACK_DAYS)
-                cov_matrix = (
-                    self.returns.iloc[hist_start:hist_end]
-                    .cov() * 365
+            try:
+                new_weights = self.optimizer(
+                    signals    = signal_row,
+                    cov        = cov_matrix,
+                    long_short = LONG_SHORT,
+                )
+                tentative = pd.Series(new_weights).reindex(
+                    self.close.columns, fill_value=0
                 )
 
-                try:
-                    new_weights = self.optimizer(
-                        signals    = signal_row,
-                        cov        = cov_matrix,
-                        long_short = LONG_SHORT,
-                    )
-                    current_weights = pd.Series(new_weights).reindex(
-                        self.close.columns, fill_value=0
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Optimizer failed on {dt}: {e} — holding previous weights"
-                    )
+                # Stage 2 — weight-delta gate.
+                # Honor REBALANCE_THRESHOLD on the final weight vector.
+                # Marginal signal wiggles that map to tiny weight adjustments
+                # (< threshold) are discarded — position sizes are frozen until
+                # the optimizer wants to move the portfolio by at least this much.
+                if (tentative - current_weights).abs().sum() >= REBALANCE_THRESHOLD:
+                    current_weights = tentative
+                    rebalance_count += 1
+
+            except Exception as e:
+                logger.warning(
+                    f"Optimizer failed on {dt}: {e} — holding previous weights"
+                )
 
             # Set current_weights on every day (rebalanced or held).
             # On hold days weights are unchanged → weights.diff() = 0 → no cost charged.

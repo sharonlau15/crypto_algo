@@ -72,8 +72,10 @@ class MomentumStrategy(BaseStrategy):
 # ══════════════════════════════════════════════════════════════════════════════
 class MeanReversionStrategy(BaseStrategy):
     """
-    Rolling z-score of price relative to its own moving average.
-    Long when z < -entry_z, short when z > +entry_z.
+    Banded entry/exit z-score mean reversion.
+    Enter long  when z < -entry_z; hold flat until z >= -exit_z.
+    Enter short when z >  entry_z; hold flat until z <=  exit_z.
+    Position is flat (0) between bands — no continuous resizing.
     Economic justification: short-term crypto overreaction creates
     exploitable reversion windows (typically 3-20 days).
     """
@@ -82,15 +84,38 @@ class MeanReversionStrategy(BaseStrategy):
         super().__init__("mean_reversion", STRATEGY_PARAMS["mean_reversion"])
 
     def generate_signals(self, close, returns, **kwargs):
-        p = self.params
+        p  = self.params
         w  = p["zscore_window"]
-        ez = p["entry_z"]
+        ez = p["entry_z"]   # 2.0 — enter when |z| exceeds this
+        xz = p["exit_z"]    # 0.5 — exit when |z| falls below this
 
         roll_mean = close.rolling(w).mean()
-        roll_std  = close.rolling(w).std()
-        zscore    = (close - roll_mean) / roll_std.replace(0, np.nan)
+        roll_std  = close.rolling(w).std().replace(0, np.nan)
+        zscore    = (close - roll_mean) / roll_std
 
-        signals = (-zscore / (ez * 3)).clip(-1, 1).fillna(0)
+        signals = pd.DataFrame(0.0, index=close.index, columns=close.columns)
+
+        for sym in close.columns:
+            z_vals  = zscore[sym].values
+            col_idx = signals.columns.get_loc(sym)
+            pos     = 0.0
+            for i in range(len(z_vals)):
+                zval = z_vals[i]
+                if np.isnan(zval):
+                    continue
+                if pos == 0.0:
+                    if zval > ez:       # price above mean → enter short
+                        pos = -1.0
+                    elif zval < -ez:    # price below mean → enter long
+                        pos = 1.0
+                elif pos == -1.0:
+                    if zval <= xz:      # z reverted → close short
+                        pos = 0.0
+                elif pos == 1.0:
+                    if zval >= -xz:     # z reverted → close long
+                        pos = 0.0
+                signals.iloc[i, col_idx] = pos
+
         return signals
 
 
