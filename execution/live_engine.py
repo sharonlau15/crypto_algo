@@ -43,6 +43,7 @@ from config.settings import (
     STOP_LOSS_PCT, TAKE_PROFIT_PCT,
     TRAILING_STOP_PCT, USE_TRAILING_STOP,
     SIGNAL_RECOMPUTE_MINS, PRICE_MONITOR_SECS, REBALANCE_THRESHOLD,
+    LIVE_BOOK_STRATEGIES, LIVE_REBALANCE_FREQ_DAYS,
     MAX_LIVE_POSITIONS, MAX_POSITION_SIZE, FUTURES_LEVERAGE,
     TRANSACTION_COST_BP, SLIPPAGE_BP,
 )
@@ -564,21 +565,43 @@ def compute_target_weights(
     close: pd.DataFrame,
     hypotheticals: dict = None,
 ) -> tuple:
-    """Return (target_weights, active_selection) for the LIVE futures portfolio."""
-    selection = seasonality_analyzer.select_strategy(
-        current_date=close.index[-1], top_n=2,
-        hypotheticals=hypotheticals,
-    )
-    logger.info(f"Active strategy blend: {selection}")
+    """Return (target_weights, active_selection) for the LIVE futures portfolio.
+    Live book: LIVE_BOOK_STRATEGIES only, inverse-vol (equal-risk) weighted.
+    """
+    vols = {}
+    if hypotheticals:
+        for name in LIVE_BOOK_STRATEGIES:
+            hyp = hypotheticals.get(name, {})
+            nav_hist = hyp.get("nav_history", [])
+            if len(nav_hist) >= 12:
+                try:
+                    dates = pd.to_datetime([h["date"] for h in nav_hist])
+                    navs  = pd.Series([h["nav"] for h in nav_hist], index=dates).sort_index()
+                    daily = navs.resample("1D").last().dropna()
+                    rets  = daily.pct_change().dropna()
+                    if len(rets) >= 10:
+                        vols[name] = float(rets.std())
+                except Exception:
+                    pass
 
-    blended      = blend_signals(signals_dict, selection, close)
+    if len(vols) == len(LIVE_BOOK_STRATEGIES):
+        inv_vols = {n: 1.0 / max(v, 1e-6) for n, v in vols.items()}
+        total    = sum(inv_vols.values())
+        weights  = {n: inv_vols[n] / total for n in LIVE_BOOK_STRATEGIES}
+    else:
+        weights = {n: 1.0 / len(LIVE_BOOK_STRATEGIES) for n in LIVE_BOOK_STRATEGIES}
+
+    selection = [(n, round(weights[n], 4)) for n in LIVE_BOOK_STRATEGIES]
+    logger.info(f"Live book (equal-risk weighted): {selection}")
+
+    live_sigs = {k: v for k, v in signals_dict.items() if k in LIVE_BOOK_STRATEGIES}
+    blended   = blend_signals(live_sigs, selection, close)
     current_sigs = blended.iloc[-1].reindex(UNIVERSE, fill_value=0)
 
     if current_sigs.abs().max() == 0:
-        logger.warning("No signals from active strategies — holding current positions")
+        logger.warning("No signals from live strategies — holding current positions")
         return pd.Series(0.0, index=UNIVERSE), selection
 
-    # long_short=True: futures supports real short positions
     return _signal_to_weights(current_sigs, long_short=True), selection
 
 
@@ -996,6 +1019,23 @@ def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: d
         f"→ {'⚡ REBALANCE' if weight_delta >= REBALANCE_THRESHOLD else '✋ HOLD'}"
     )
 
+    if not controls.get("override_active"):
+        last_rebal_ts = state.get("last_rebalance_date")
+        if last_rebal_ts is not None:
+            try:
+                lt = pd.Timestamp(last_rebal_ts)
+                lt = lt if lt.tzinfo else lt.tz_localize("UTC")
+                days_since = (pd.Timestamp.now(tz="UTC") - lt).days
+                if days_since < LIVE_REBALANCE_FREQ_DAYS:
+                    logger.info(
+                        f"Weekly cadence: {days_since}d since last rebalance "
+                        f"(gate={LIVE_REBALANCE_FREQ_DAYS}d) — skipping orders this cycle"
+                    )
+                    save_state(state)
+                    return
+            except Exception as e:
+                logger.warning(f"Weekly cadence check error ({e}) — proceeding normally")
+
     if weight_delta < REBALANCE_THRESHOLD:
         logger.info("Signal unchanged — holding current positions, no orders placed.")
         save_state(state)  # persist hypotheticals
@@ -1017,8 +1057,9 @@ def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: d
     state = execute_rebalance(new_weights, state, nav, prices)
 
     # 8. Persist
-    state["current_weights"] = new_aligned.to_dict()
-    state["last_run"]        = str(datetime.now(timezone.utc))
+    state["current_weights"]      = new_aligned.to_dict()
+    state["last_run"]             = str(datetime.now(timezone.utc))
+    state["last_rebalance_date"]  = str(pd.Timestamp.now(tz="UTC"))
     state["nav_history"].append({
         "date":  str(pd.Timestamp.now(tz="UTC")),
         "nav":   round(nav, 2),
@@ -1135,6 +1176,8 @@ def start_scheduler(strategies: list, seasonality_analyzer, signals_dict: dict,
     logger.info(f"  📊 REAL DATA  |  🎮 FUTURES DEMO EXECUTION (virtual money, real prices)")
     logger.info(f"  Leverage         : {FUTURES_LEVERAGE}x on all positions")
     logger.info(f"  Mode             : Long/Short enabled (real shorts via perpetual futures)")
+    logger.info(f"  Live book        : {', '.join(LIVE_BOOK_STRATEGIES)} (equal-risk weighted)")
+    logger.info(f"  Rebalance cadence: weekly (every {LIVE_REBALANCE_FREQ_DAYS}d)")
     logger.info(f"  Signal recompute : every {SIGNAL_RECOMPUTE_MINS} min  → places orders only if signal shifts")
     logger.info(f"  Stop/TP monitor  : every {PRICE_MONITOR_SECS}s   → exits positions immediately on breach")
     logger.info(f"  Rebalance trigger: total |Δweight| > {REBALANCE_THRESHOLD:.0%}")

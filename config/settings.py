@@ -104,8 +104,10 @@ MIN_ORDER_USDT      = 11            # Binance min notional + buffer
 # ── Real-time live trading ─────────────────────────────────────────────────────
 SIGNAL_RECOMPUTE_MINS = 1           # How often to recompute signals and check for rebalance
 PRICE_MONITOR_SECS    = 300         # Poll every 5 min — daily-bar signals; 60s manufactured turnover
-REBALANCE_THRESHOLD   = 0.10        # Min total weight change (sum of |Δw|) to trigger rebalance
-MAX_LIVE_POSITIONS    = 6           # Max number of simultaneous long positions in live trading
+REBALANCE_THRESHOLD      = 0.15     # Min total weight change (sum of |Δw|) to trigger rebalance
+MAX_LIVE_POSITIONS       = 6        # Max number of simultaneous long positions in live trading
+LIVE_BOOK_STRATEGIES     = ["momentum", "mean_reversion"]   # Only these trade real money
+LIVE_REBALANCE_FREQ_DAYS = 7        # Weekly cadence — no orders placed more often than this
 
 # ── Strategy Params ────────────────────────────────────────────────────────────
 STRATEGY_PARAMS = {
