@@ -184,34 +184,51 @@ def get_trade_log(limit: int = 50) -> pd.DataFrame:
 
 def get_strategy_metrics() -> pd.DataFrame:
     """
-    Return all rows from strategy_metrics.
-    Columns: strategy, sharpe, sortino, calmar, cagr, max_drawdown,
-             total_return, win_rate, profit_factor, recorded_at.
+    Return all rows from strategy_metrics, including OOS columns added by the
+    latest backtest run (gross_sharpe_oos, net_sharpe_oos, cost_drag,
+    annual_turnover_pct, rebalance_days).  Falls back gracefully if the OOS
+    columns do not yet exist (older DB schema).
     """
-    cols = [
+    base_cols = [
         "strategy", "sharpe", "sortino", "calmar", "cagr",
         "max_drawdown", "total_return", "win_rate", "profit_factor", "recorded_at",
     ]
+    oos_cols = [
+        "gross_sharpe_oos", "net_sharpe_oos", "cost_drag",
+        "annual_turnover_pct", "rebalance_days",
+    ]
+    all_cols = base_cols + oos_cols
     try:
         with _db() as conn:
             cur = conn.cursor()
-            cur.execute("""
-                SELECT strategy, sharpe, sortino, calmar, cagr,
-                       max_drawdown, total_return, win_rate, profit_factor, recorded_at
-                FROM strategy_metrics
-                ORDER BY sharpe DESC NULLS LAST
-            """)
+            # Try full query with OOS columns; fall back to base columns if schema is old
+            try:
+                cur.execute(f"""
+                    SELECT {', '.join(all_cols)}
+                    FROM strategy_metrics
+                    ORDER BY net_sharpe_oos DESC NULLS LAST, sharpe DESC NULLS LAST
+                """)
+                cols_used = all_cols
+            except Exception:
+                conn.rollback()
+                cur.execute(f"""
+                    SELECT {', '.join(base_cols)}
+                    FROM strategy_metrics
+                    ORDER BY sharpe DESC NULLS LAST
+                """)
+                cols_used = base_cols
+
             rows = cur.fetchall()
             if not rows:
-                return pd.DataFrame(columns=cols)
-            df = pd.DataFrame(rows, columns=cols)
-            for c in ["sharpe", "sortino", "calmar", "cagr", "max_drawdown",
-                      "total_return", "win_rate", "profit_factor"]:
-                df[c] = pd.to_numeric(df[c], errors="coerce")
+                return pd.DataFrame(columns=cols_used)
+            df = pd.DataFrame(rows, columns=cols_used)
+            for c in df.columns:
+                if c not in ("strategy", "recorded_at"):
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
             return df
     except Exception as e:
         logger.error(f"get_strategy_metrics failed: {e}")
-        return pd.DataFrame(columns=cols)
+        return pd.DataFrame(columns=base_cols)
 
 
 # ── Hypothetical strategies ───────────────────────────────────────────────────

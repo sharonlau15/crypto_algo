@@ -169,6 +169,7 @@ def run_backtest_pipeline(use_cache: bool = True):
         attr_report      = attr_report,
         season_report    = season_rpt,
         output_dir       = RESULT_DIR,
+        overlay_results  = overlay_results,
     )
 
     return {

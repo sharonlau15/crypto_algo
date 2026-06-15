@@ -925,15 +925,51 @@ def populate_strategy_dropdown(n_intervals):
     Input("refresh-interval", "n_intervals"),
 )
 def update_backtest_tab(n_intervals):
+    from config.settings import RESEARCH_GATE
     metrics_df = get_strategy_metrics()
     returns_df = get_portfolio_returns()
-    oos_df     = get_gross_net_sharpe()
 
+    # ── OOS gate table from DB ────────────────────────────────────────────────
+    oos_gate_data = []
+    oos_cols_present = (
+        not metrics_df.empty
+        and "gross_sharpe_oos" in metrics_df.columns
+        and metrics_df["gross_sharpe_oos"].notna().any()
+    )
+    if oos_cols_present:
+        g = RESEARCH_GATE
+        oos = metrics_df[
+            ["strategy", "gross_sharpe_oos", "net_sharpe_oos",
+             "cost_drag", "annual_turnover_pct", "rebalance_days"]
+        ].copy()
+        oos["gate"] = oos.apply(
+            lambda r: "PASS" if (
+                pd.notna(r["gross_sharpe_oos"])
+                and r["gross_sharpe_oos"]    > g["min_gross_sharpe_oos"]
+                and pd.notna(r["net_sharpe_oos"])
+                and r["net_sharpe_oos"]      > g["min_net_sharpe_oos"]
+                and pd.notna(r["annual_turnover_pct"])
+                and r["annual_turnover_pct"] < g["max_annual_turnover_pct"]
+            ) else "FAIL",
+            axis=1,
+        )
+        # Sort: PASS first, then by net OOS Sharpe desc
+        oos["_pass"] = (oos["gate"] == "PASS").astype(int)
+        oos = oos.sort_values(
+            ["_pass", "net_sharpe_oos"], ascending=[False, False]
+        ).drop(columns="_pass")
+        oos_gate_data = oos.round(3).to_dict("records")
+    else:
+        # Fallback to CSV while DB migration hasn't run yet
+        csv_df = get_gross_net_sharpe()
+        if not csv_df.empty:
+            oos_gate_data = csv_df.round(3).to_dict("records")
+
+    # ── Full-period metrics table ─────────────────────────────────────────────
     display_cols = [
         "strategy", "sharpe", "sortino", "calmar", "cagr",
         "max_drawdown", "total_return", "win_rate", "profit_factor",
     ]
-
     if not metrics_df.empty:
         pct_cols = {"win_rate", "max_drawdown", "total_return", "cagr"}
         for col in display_cols[1:]:
@@ -945,10 +981,11 @@ def update_backtest_tab(n_intervals):
                 metrics_df[col] = metrics_df[col].round(3)
         available_cols = [c for c in display_cols if c in metrics_df.columns]
         col_labels = {
-            "strategy": "Strategy", "sharpe": "Sharpe", "sortino": "Sortino",
-            "calmar": "Calmar", "cagr": "CAGR %", "max_drawdown": "Max DD %",
-            "total_return": "Total Return %", "win_rate": "Win Rate %",
-            "profit_factor": "Profit Factor",
+            "strategy":     "Strategy",       "sharpe":       "Sharpe",
+            "sortino":      "Sortino",         "calmar":       "Calmar",
+            "cagr":         "CAGR %",          "max_drawdown": "Max DD %",
+            "total_return": "Total Return %",  "win_rate":     "Win Rate %",
+            "profit_factor":"Profit Factor",
         }
         metrics_data = metrics_df[available_cols].to_dict("records")
         metrics_cols = [{"name": col_labels.get(c, c), "id": c} for c in available_cols]
@@ -956,24 +993,19 @@ def update_backtest_tab(n_intervals):
         metrics_data = []
         metrics_cols = [{"name": c.replace("_", " ").title(), "id": c} for c in display_cols]
 
-    # Cumulative returns chart
+    # ── Cumulative returns chart ──────────────────────────────────────────────
     fig = go.Figure()
     if not returns_df.empty:
-        # Expect columns: date (or index) + one column per strategy
         date_col = None
         for candidate in ["date", "Date", "recorded_at", "index"]:
             if candidate in returns_df.columns:
                 date_col = candidate
                 break
-        if date_col is None and returns_df.index.name:
-            returns_df = returns_df.reset_index()
-            date_col = returns_df.columns[0]
-        elif date_col is None:
+        if date_col is None:
             returns_df = returns_df.reset_index()
             date_col = returns_df.columns[0]
 
         strategy_cols = [c for c in returns_df.columns if c != date_col]
-        colours = STRAT_COLOURS
         for i, col in enumerate(strategy_cols):
             cumret = (1 + returns_df[col].fillna(0)).cumprod()
             fig.add_trace(go.Scatter(
@@ -981,14 +1013,11 @@ def update_backtest_tab(n_intervals):
                 y=cumret,
                 mode="lines",
                 name=col,
-                line={"color": colours[i % len(colours)], "width": 1.5},
+                line={"color": STRAT_COLOURS[i % len(STRAT_COLOURS)], "width": 1.5},
             ))
         fig.update_layout(title="Cumulative Returns", **CHART_LAYOUT)
     else:
         fig = _empty_fig("Cumulative Returns (no data)")
-
-    # OOS gate table
-    oos_gate_data = oos_df.round(3).to_dict("records") if not oos_df.empty else []
 
     return oos_gate_data, metrics_data, metrics_cols, fig
 

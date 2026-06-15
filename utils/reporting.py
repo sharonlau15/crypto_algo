@@ -13,14 +13,20 @@ from loguru import logger
 from config.settings import BACKTEST_TEST_START
 
 
-def _gross_net_table(backtest_results: dict) -> pd.DataFrame:
+def _gross_net_table(
+    backtest_results: dict,
+    overlay_results:  dict | None = None,
+) -> pd.DataFrame:
     """
     Build gross OOS Sharpe / net OOS Sharpe / annual turnover table.
-    Requires BacktestResult.gross_oos_metrics and .annual_turnover (populated
-    by engine.py after the REBALANCE_THRESHOLD fix).
+    Includes overlay variants (e.g. momentum_vt) when overlay_results is supplied.
     """
+    all_results = dict(backtest_results)
+    if overlay_results:
+        all_results.update(overlay_results)
+
     rows = []
-    for name, r in backtest_results.items():
+    for name, r in all_results.items():
         gross_sh = r.gross_oos_metrics.get("sharpe", np.nan) if r.gross_oos_metrics else np.nan
         net_sh   = r.oos_metrics.get("sharpe",       np.nan) if r.oos_metrics       else np.nan
         drag     = round(gross_sh - net_sh, 3) if not (np.isnan(gross_sh) or np.isnan(net_sh)) else np.nan
@@ -126,23 +132,29 @@ def save_results(
     attr_report:      pd.DataFrame,
     season_report:    pd.DataFrame,
     output_dir:       Path,
+    overlay_results:  dict | None = None,
 ):
     """Persist all results as CSV and JSON for dashboard consumption."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Merge overlay variants for complete persistence
+    all_results = dict(backtest_results)
+    if overlay_results:
+        all_results.update(overlay_results)
+
     # Strategy metrics as JSON — full period + in-sample + out-of-sample split
     metrics = {
         name: {
-            "full":         r.metrics,
-            "in_sample":    r.in_sample_metrics,
+            "full":          r.metrics,
+            "in_sample":     r.in_sample_metrics,
             "out_of_sample": r.oos_metrics,
         }
-        for name, r in backtest_results.items()
+        for name, r in all_results.items()
     }
     with open(output_dir / "strategy_metrics.json", "w") as f:
         json.dump(metrics, f, indent=2, default=str)
 
-    # Portfolio return series
+    # Portfolio return series (backtest_results only — overlay uses same returns)
     returns_df = pd.DataFrame({
         name: r.portfolio_returns
         for name, r in backtest_results.items()
@@ -158,16 +170,16 @@ def save_results(
     if not attr_report.empty:
         attr_report.to_csv(output_dir / "attribution_report.csv")
 
-    # P&L Metrics
+    # P&L Metrics (backtest_results only — overlay variants share IS capital)
     pnl_metrics = {
         name: {
             "initial_capital": r.metrics.get("initial_capital"),
-            "final_capital": r.metrics.get("final_capital"),
-            "total_pnl": r.metrics.get("total_pnl"),
-            "avg_daily_pnl": r.metrics.get("avg_daily_pnl"),
-            "best_day_pnl": r.metrics.get("best_day_pnl"),
-            "worst_day_pnl": r.metrics.get("worst_day_pnl"),
-            "pnl_ratio": r.metrics.get("pnl_ratio"),
+            "final_capital":   r.metrics.get("final_capital"),
+            "total_pnl":       r.metrics.get("total_pnl"),
+            "avg_daily_pnl":   r.metrics.get("avg_daily_pnl"),
+            "best_day_pnl":    r.metrics.get("best_day_pnl"),
+            "worst_day_pnl":   r.metrics.get("worst_day_pnl"),
+            "pnl_ratio":       r.metrics.get("pnl_ratio"),
         }
         for name, r in backtest_results.items()
     }
@@ -178,48 +190,71 @@ def save_results(
     cum_returns = (1 + returns_df).cumprod()
     cum_returns.to_csv(output_dir / "cumulative_returns.csv")
 
-    # Gross vs net Sharpe table
-    gn = _gross_net_table(backtest_results)
+    # Gross vs net Sharpe table — includes overlay variants
+    gn = _gross_net_table(backtest_results, overlay_results)
     gn.to_csv(output_dir / "gross_net_sharpe.csv")
 
     logger.success(f"Results saved to {output_dir}")
 
-    # Also persist strategy metrics to PostgreSQL
+    # Persist all metrics (full-period + OOS) to PostgreSQL
     try:
         from db.connection import get_conn, put_conn
         conn = get_conn()
         try:
             cur = conn.cursor()
-            for name, r in backtest_results.items():
-                m = r.metrics
+
+            # Idempotent migration: add OOS columns if not present
+            cur.execute("""
+                ALTER TABLE strategy_metrics
+                    ADD COLUMN IF NOT EXISTS gross_sharpe_oos    NUMERIC,
+                    ADD COLUMN IF NOT EXISTS net_sharpe_oos      NUMERIC,
+                    ADD COLUMN IF NOT EXISTS cost_drag           NUMERIC,
+                    ADD COLUMN IF NOT EXISTS annual_turnover_pct NUMERIC,
+                    ADD COLUMN IF NOT EXISTS rebalance_days      INTEGER
+            """)
+            conn.commit()
+
+            for name, r in all_results.items():
+                m        = r.metrics or {}
+                gross_sh = r.gross_oos_metrics.get("sharpe") if r.gross_oos_metrics else None
+                net_sh   = r.oos_metrics.get("sharpe")       if r.oos_metrics       else None
+                drag     = (round(gross_sh - net_sh, 6)
+                            if gross_sh is not None and net_sh is not None else None)
+                turnover = round(r.annual_turnover * 100, 2)
+
                 cur.execute("""
                     INSERT INTO strategy_metrics
                         (strategy, sharpe, sortino, calmar, cagr, max_drawdown,
-                         total_return, win_rate, profit_factor, recorded_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                         total_return, win_rate, profit_factor,
+                         gross_sharpe_oos, net_sharpe_oos, cost_drag,
+                         annual_turnover_pct, rebalance_days,
+                         recorded_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
                     ON CONFLICT (strategy) DO UPDATE SET
-                        sharpe        = EXCLUDED.sharpe,
-                        sortino       = EXCLUDED.sortino,
-                        calmar        = EXCLUDED.calmar,
-                        cagr          = EXCLUDED.cagr,
-                        max_drawdown  = EXCLUDED.max_drawdown,
-                        total_return  = EXCLUDED.total_return,
-                        win_rate      = EXCLUDED.win_rate,
-                        profit_factor = EXCLUDED.profit_factor,
-                        recorded_at   = EXCLUDED.recorded_at
+                        sharpe               = EXCLUDED.sharpe,
+                        sortino              = EXCLUDED.sortino,
+                        calmar               = EXCLUDED.calmar,
+                        cagr                 = EXCLUDED.cagr,
+                        max_drawdown         = EXCLUDED.max_drawdown,
+                        total_return         = EXCLUDED.total_return,
+                        win_rate             = EXCLUDED.win_rate,
+                        profit_factor        = EXCLUDED.profit_factor,
+                        gross_sharpe_oos     = EXCLUDED.gross_sharpe_oos,
+                        net_sharpe_oos       = EXCLUDED.net_sharpe_oos,
+                        cost_drag            = EXCLUDED.cost_drag,
+                        annual_turnover_pct  = EXCLUDED.annual_turnover_pct,
+                        rebalance_days       = EXCLUDED.rebalance_days,
+                        recorded_at          = EXCLUDED.recorded_at
                 """, (
                     name,
-                    m.get("sharpe"),
-                    m.get("sortino"),
-                    m.get("calmar"),
-                    m.get("cagr"),
-                    m.get("max_drawdown"),
-                    m.get("total_return"),
-                    m.get("win_rate"),
-                    m.get("profit_factor"),
+                    m.get("sharpe"),       m.get("sortino"),
+                    m.get("calmar"),       m.get("cagr"),
+                    m.get("max_drawdown"), m.get("total_return"),
+                    m.get("win_rate"),     m.get("profit_factor"),
+                    gross_sh, net_sh, drag, turnover, r.rebalance_count,
                 ))
             conn.commit()
-            logger.success("Strategy metrics written to PostgreSQL")
+            logger.success("Strategy metrics (full + OOS) written to PostgreSQL")
         finally:
             put_conn(conn)
     except Exception as e:
