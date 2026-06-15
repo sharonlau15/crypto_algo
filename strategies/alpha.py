@@ -843,7 +843,8 @@ class ResidMomentumStrategy(BaseStrategy):
         # Zero-fill during warm-up (first ols_window + mom_lookback bars)
         signals = signals.where(cum_resid.notna(), 0.0)
 
-        return signals
+        # returns is one row shorter than close — reindex to match close.index
+        return signals.reindex(close.index, fill_value=0.0)
 
 
 # ── Factory ────────────────────────────────────────────────────────────────────
