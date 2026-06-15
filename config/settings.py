@@ -171,6 +171,32 @@ STRATEGY_PARAMS = {
         "fear_threshold":     30,    # < 30 = contrarian long
         "lookback":           7,
     },
+    # ── Research / paper candidates (not in LIVE_BOOK_STRATEGIES) ─────────────
+    "tsmom_volscaled": {
+        "lookback":    252,    # 12-month trailing return for direction
+        "vol_window":  63,     # 3-month realized vol estimation window
+        "min_vol":     0.05,   # 5% annualized vol floor (prevents ÷0 scaling)
+    },
+}
+
+# ── Vol-targeting overlay ──────────────────────────────────────────────────────
+# Applied post-hoc to any strategy's weights_history.  Replaces (not stacks
+# with) the MIN_ANNUALIZED_VOL = 3% floor — that floor is irrelevant when the
+# overlay is active since the overlay targets 15%.
+VOL_TARGET_PARAMS = {
+    "target_vol":  0.15,   # 15% annualized target portfolio vol
+    "band":        0.20,   # ±20% corridor — only resize when outside [12%, 18%]
+    "vol_window":  63,     # trailing days used to estimate realized vol
+    "max_scale":   2.0,    # hard cap on the leverage-scaling factor
+}
+
+# ── Research gate thresholds ────────────────────────────────────────────────────
+# A candidate strategy must clear ALL three to be eligible for live-book promotion.
+# Promotion is manual — clearing the gate just flags the strategy as eligible.
+RESEARCH_GATE = {
+    "min_gross_sharpe_oos":   0.5,
+    "min_net_sharpe_oos":     0.0,
+    "max_annual_turnover_pct": 1000.0,
 }
 
 # ── Seasonality ────────────────────────────────────────────────────────────────

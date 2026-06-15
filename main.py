@@ -31,14 +31,14 @@ os.chdir(project_root)
 import pandas as pd
 from loguru import logger
 
-from config.settings import UNIVERSE, BACKTEST_START, RESULT_DIR
+from config.settings import UNIVERSE, BACKTEST_START, RESULT_DIR, VOL_TARGET_PARAMS, LIVE_BOOK_STRATEGIES
 from config.client import check_connectivity
 from data.ingestion import (
     get_universe_ohlcv, build_close_matrix, build_return_matrix,
     get_fear_greed_index, get_universe_funding_rates,
 )
 from strategies.alpha import get_all_strategies
-from backtest.engine import run_all_backtests, compute_metrics
+from backtest.engine import run_all_backtests, compute_metrics, overlay_backtest_result
 from portfolio.optimizer import max_sharpe_optimize
 from seasonality.analyzer import SeasonalityAnalyzer, blend_signals
 from attribution.factor_model import (
@@ -46,7 +46,10 @@ from attribution.factor_model import (
 )
 from execution.live_engine import start_scheduler
 from utils.logger import setup_logger
-from utils.reporting import print_summary_table, save_results
+from utils.reporting import (
+    print_summary_table, save_results,
+    print_overlay_comparison, print_oos_correlation_matrix, print_eligibility_gate,
+)
 
 
 
@@ -78,8 +81,8 @@ def run_backtest_pipeline(use_cache: bool = True):
     fg      = get_fear_greed_index()
 
     # ── 3. Generate all signals ────────────────────────────────────────────────
-    logger.info("Step 3/6: Generating signals for all 10 strategies")
     strategies   = get_all_strategies()
+    logger.info(f"Step 3/6: Generating signals for {len(strategies)} strategies")
     signals_dict = {}
 
     for strategy in strategies:
@@ -103,6 +106,19 @@ def run_backtest_pipeline(use_cache: bool = True):
         returns      = returns,
         optimizer    = max_sharpe_optimize,
     )
+
+    # ── 4b. Vol-targeting overlay on live-book strategies ─────────────────────
+    # Applied post-hoc to weights_history — does not re-run the optimizer.
+    # Provides head-to-head comparison for momentum and mean_reversion.
+    logger.info("Step 4b: Computing vol-targeting overlay variants")
+    overlay_results = {}
+    for strat_name in LIVE_BOOK_STRATEGIES:
+        if strat_name in backtest_results:
+            overlay_results[f"{strat_name}_vt"] = overlay_backtest_result(
+                result  = backtest_results[strat_name],
+                returns = returns,
+                **VOL_TARGET_PARAMS,
+            )
 
     # ── 5. Seasonality analysis ────────────────────────────────────────────────
     logger.info("Step 5/6: Seasonality and regime analysis")
@@ -138,6 +154,12 @@ def run_backtest_pipeline(use_cache: bool = True):
         name: result.metrics for name, result in backtest_results.items()
     }
     print_summary_table(metrics_summary, attr_report, regime_df, hedge_analysis, backtest_results)
+
+    # ── Research reporting ─────────────────────────────────────────────────────
+    print_overlay_comparison(backtest_results, overlay_results)
+    print_oos_correlation_matrix(backtest_results)
+    print_eligibility_gate(backtest_results, live_book=LIVE_BOOK_STRATEGIES)
+
     save_results(
         backtest_results = backtest_results,
         monthly_df       = monthly_df,
@@ -148,16 +170,17 @@ def run_backtest_pipeline(use_cache: bool = True):
     )
 
     return {
-        "universe_data":      universe_data,
-        "close":              close,
-        "returns":            returns,
-        "strategies":         strategies,
-        "signals_dict":       signals_dict,
-        "backtest_results":   backtest_results,
+        "universe_data":        universe_data,
+        "close":                close,
+        "returns":              returns,
+        "strategies":           strategies,
+        "signals_dict":         signals_dict,
+        "backtest_results":     backtest_results,
+        "overlay_results":      overlay_results,
         "seasonality_analyzer": analyzer,
-        "factor_matrix":      factor_matrix,
-        "attr_report":        attr_report,
-        "hedge_analysis":     hedge_analysis,
+        "factor_matrix":        factor_matrix,
+        "attr_report":          attr_report,
+        "hedge_analysis":       hedge_analysis,
     }
 
 

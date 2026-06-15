@@ -158,6 +158,74 @@ def _equal_weight_fallback(
     return weights.to_dict()
 
 
+def apply_vol_target_overlay(
+    weights:    pd.DataFrame,
+    returns:    pd.DataFrame,
+    target_vol: float = 0.15,
+    band:       float = 0.20,
+    vol_window: int   = 63,
+    max_scale:  float = 2.0,
+) -> pd.DataFrame:
+    """
+    Band-triggered portfolio vol-targeting overlay.
+
+    Scales the ENTIRE weight vector by a single scalar so that realized
+    annualized portfolio vol stays near `target_vol`.  The scalar only
+    updates when realized vol drifts more than ±`band` fraction away from
+    target (banding prevents the high turnover of continuous rescaling).
+
+    Replaces MIN_ANNUALIZED_VOL enforcement — do not stack.
+
+    Parameters
+    ----------
+    weights    : (T × N) weights DataFrame — same shape as weights_history
+    returns    : (T × N) simple/log returns — same index as weights
+    target_vol : annualized vol target (default 15%)
+    band       : ±fraction corridor; only resize when realized_vol is
+                 outside [target*(1-band), target*(1+band)]
+    vol_window : trailing days used to estimate realized vol
+    max_scale  : hard cap on the multiplicative scaling factor (2 = 2×)
+
+    Returns
+    -------
+    pd.DataFrame — overlaid weights, same shape and index as `weights`
+    """
+    from config.settings import MAX_POSITION_SIZE
+
+    common = weights.index.intersection(returns.index)
+    w = weights.reindex(common).fillna(0.0)
+    r = returns.reindex(common).fillna(0.0)
+
+    # Realized portfolio returns using the ORIGINAL (un-scaled) weights
+    port_ret = (w * r).sum(axis=1)
+
+    # Rolling annualized vol
+    realized_vol = port_ret.rolling(vol_window).std() * np.sqrt(365)
+
+    low_trigger  = target_vol * (1 - band)   # default 12%
+    high_trigger = target_vol * (1 + band)   # default 18%
+
+    # Stateful band logic: update scale only when outside corridor
+    scales = np.ones(len(common))
+    current_scale = 1.0
+
+    for i in range(len(common)):
+        rv = realized_vol.iloc[i]
+        if pd.isna(rv) or rv <= 0.0:
+            scales[i] = current_scale
+            continue
+        if rv < low_trigger or rv > high_trigger:
+            current_scale = min(target_vol / rv, max_scale)
+        scales[i] = current_scale
+
+    scale_series = pd.Series(scales, index=common)
+
+    scaled = w.mul(scale_series, axis=0).clip(-MAX_POSITION_SIZE, MAX_POSITION_SIZE)
+
+    # Restore full original index (rows not in `common` stay zero)
+    return scaled.reindex(weights.index).fillna(0.0)
+
+
 def compute_portfolio_vol(weights: dict, cov: pd.DataFrame) -> float:
     """Compute annualized portfolio volatility from weights and covariance."""
     w = pd.Series(weights).reindex(cov.index, fill_value=0).values

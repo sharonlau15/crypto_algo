@@ -394,6 +394,92 @@ class WalkForwardBacktester:
         )
 
 
+def overlay_backtest_result(
+    result:     BacktestResult,
+    returns:    pd.DataFrame,
+    target_vol: float = 0.15,
+    band:       float = 0.20,
+    vol_window: int   = 63,
+    max_scale:  float = 2.0,
+) -> BacktestResult:
+    """
+    Apply the vol-targeting overlay to an existing BacktestResult.
+
+    Recomputes gross and net returns using overlaid weights; reports the
+    same IS/OOS split and cost model as the base result.  The overlay
+    replaces the 3% vol floor (MIN_ANNUALIZED_VOL) — do not stack.
+
+    Parameters
+    ----------
+    result     : a completed BacktestResult from WalkForwardBacktester
+    returns    : the same returns DataFrame used in the original backtest
+    Other params forwarded to apply_vol_target_overlay.
+
+    Returns
+    -------
+    A new BacktestResult named ``{strategy_name}_vt``.
+    """
+    from portfolio.optimizer import apply_vol_target_overlay
+
+    overlaid = apply_vol_target_overlay(
+        weights    = result.weights_history,
+        returns    = returns,
+        target_vol = target_vol,
+        band       = band,
+        vol_window = vol_window,
+        max_scale  = max_scale,
+    )
+
+    fwd_returns   = returns.shift(-1)
+    gross_returns = (overlaid * fwd_returns).sum(axis=1)
+    gross_returns = gross_returns.iloc[RISK_LOOKBACK_DAYS:-1]
+
+    w_trimmed   = overlaid.loc[gross_returns.index]
+    net_returns = apply_transaction_costs(gross_returns, w_trimmed)
+
+    test_cutoff = pd.Timestamp(BACKTEST_TEST_START, tz="UTC")
+    # Guard: localize if index is tz-naive
+    idx = net_returns.index
+    if idx.tz is None:
+        try:
+            idx = idx.tz_localize("UTC")
+            net_returns.index  = idx
+            gross_returns.index = gross_returns.index.tz_localize("UTC")
+            w_trimmed.index    = w_trimmed.index.tz_localize("UTC")
+        except Exception:
+            pass
+
+    net_is    = net_returns[net_returns.index < test_cutoff]
+    net_oos   = net_returns[net_returns.index >= test_cutoff]
+    gross_oos = gross_returns[gross_returns.index >= test_cutoff]
+
+    name = f"{result.strategy_name}_vt"
+    is_metrics    = compute_metrics(net_is,    f"{name}[in-sample]")
+    oos_metrics   = compute_metrics(net_oos,   f"{name}[out-of-sample]")
+    gross_oos_met = compute_metrics(gross_oos, f"{name}[gross-oos]")
+
+    turnover        = w_trimmed.diff().abs().sum(axis=1)
+    annual_turnover = float(turnover.mean() * 365)
+
+    logger.info(
+        f"  Overlay ({name}): OOS gross Sharpe={gross_oos_met.get('sharpe')} | "
+        f"net Sharpe={oos_metrics.get('sharpe')} | turnover={annual_turnover:.1%}"
+    )
+
+    return BacktestResult(
+        strategy_name     = name,
+        portfolio_returns = net_returns,
+        gross_returns     = gross_returns,
+        weights_history   = overlaid,
+        signal_history    = result.signal_history,
+        annual_turnover   = annual_turnover,
+        rebalance_count   = result.rebalance_count,
+        in_sample_metrics = is_metrics,
+        oos_metrics       = oos_metrics,
+        gross_oos_metrics = gross_oos_met,
+    )
+
+
 def run_all_backtests(
     strategies:   list,
     signals_dict: dict,     # name → signal DataFrame

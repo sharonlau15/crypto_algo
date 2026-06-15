@@ -224,3 +224,171 @@ def save_results(
             put_conn(conn)
     except Exception as e:
         logger.warning(f"DB write for strategy_metrics skipped: {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RESEARCH REPORTING — overlay comparison, correlation matrix, eligibility gate
+# ══════════════════════════════════════════════════════════════════════════════
+
+def print_overlay_comparison(
+    base_results:    dict,
+    overlay_results: dict,
+):
+    """
+    Side-by-side gross/net OOS Sharpe table for strategies WITH and WITHOUT
+    the vol-targeting overlay.  `overlay_results` keys are "{name}_vt".
+    """
+    print("\n" + "=" * 90)
+    print("  VOL-TARGETING OVERLAY — EFFECT ON OOS SHARPE")
+    print(f"  (OOS: {BACKTEST_TEST_START} → today | target_vol=15% | band=±20%)")
+    print("=" * 90)
+
+    rows = []
+    overlay_base_names = {k.replace("_vt", "") for k in overlay_results}
+
+    for name in overlay_base_names:
+        if name not in base_results:
+            continue
+        base = base_results[name]
+        vt   = overlay_results.get(f"{name}_vt")
+
+        def _g(r):
+            return (
+                r.gross_oos_metrics.get("sharpe", np.nan) if r and r.gross_oos_metrics else np.nan
+            )
+        def _n(r):
+            return r.oos_metrics.get("sharpe", np.nan) if r and r.oos_metrics else np.nan
+        def _t(r):
+            return round(r.annual_turnover * 100, 1) if r else np.nan
+
+        rows.append({
+            "strategy":          name,
+            "gross_oos (base)":  _g(base),
+            "net_oos  (base)":   _n(base),
+            "gross_oos (+VT)":   _g(vt),
+            "net_oos  (+VT)":    _n(vt),
+            "turnover% (base)":  _t(base),
+            "turnover% (+VT)":   _t(vt),
+        })
+
+    if rows:
+        df = pd.DataFrame(rows).set_index("strategy")
+        print(df.round(3).to_string())
+    print("=" * 90 + "\n")
+
+
+def print_oos_correlation_matrix(
+    backtest_results: dict,
+    flag_threshold:   float = 0.5,
+):
+    """
+    Compute pairwise return correlations over the OOS period.
+    Flags any pair with |ρ| > flag_threshold.
+
+    Correlation is computed on NET daily return series, filtered to the
+    OOS period so it does not reflect in-sample fit.
+    """
+    test_cutoff = pd.Timestamp(BACKTEST_TEST_START)
+
+    oos_returns = {}
+    for name, r in backtest_results.items():
+        ret = r.portfolio_returns.dropna()
+        idx = ret.index
+        if idx.tz is not None:
+            test_ts = pd.Timestamp(BACKTEST_TEST_START, tz="UTC")
+        else:
+            test_ts = test_cutoff
+        oos = ret[idx >= test_ts]
+        if len(oos) >= 30:
+            oos_returns[name] = oos
+
+    if len(oos_returns) < 2:
+        print("\n[OOS correlation] Insufficient data — skipping.\n")
+        return
+
+    corr = pd.DataFrame(oos_returns).dropna(how="all").corr()
+    names = sorted(corr.columns)
+    corr  = corr.loc[names, names]
+
+    print("\n" + "=" * 90)
+    print(f"  OOS RETURN CORRELATION MATRIX  (post {BACKTEST_TEST_START})")
+    print("=" * 90)
+    print(corr.round(2).to_string())
+
+    # Flag high-correlation pairs
+    flags = []
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            rho = corr.iloc[i, j]
+            if abs(rho) > flag_threshold:
+                flags.append(
+                    f"  ⚠  |ρ({names[i]}, {names[j]})| = {rho:.2f} > {flag_threshold}"
+                )
+    if flags:
+        print(f"\n  High-correlation pairs (|ρ| > {flag_threshold}):")
+        for f in flags:
+            print(f)
+    else:
+        print(f"\n  No pairs with |ρ| > {flag_threshold}.")
+    print("=" * 90 + "\n")
+
+
+def print_eligibility_gate(
+    backtest_results:       dict,
+    live_book:              list | None = None,
+    gross_sharpe_threshold: float = 0.5,
+    net_sharpe_threshold:   float = 0.0,
+    max_turnover_pct:       float = 1000.0,
+):
+    """
+    Apply the promotion eligibility gate to every strategy NOT already in
+    the live book.  Reports PASS/FAIL with the three contributing metrics.
+
+    Gate: gross OOS Sharpe > threshold  AND  net OOS Sharpe > 0
+          AND  annual turnover < 1000%.
+
+    Does NOT promote anything — caller decides.
+    """
+    if live_book is None:
+        from config.settings import LIVE_BOOK_STRATEGIES
+        live_book = LIVE_BOOK_STRATEGIES
+
+    print("\n" + "=" * 90)
+    print("  ELIGIBILITY GATE  (research → live promotion criteria)")
+    print(f"  Criteria: gross_OOS_Sharpe > {gross_sharpe_threshold}  "
+          f"AND  net_OOS_Sharpe > {net_sharpe_threshold}  "
+          f"AND  turnover < {max_turnover_pct:.0f}%")
+    print("=" * 90)
+
+    rows = []
+    for name, r in backtest_results.items():
+        if name in live_book:
+            continue  # already live — not evaluated here
+
+        gross_sh = (r.gross_oos_metrics.get("sharpe", np.nan)
+                    if r.gross_oos_metrics else np.nan)
+        net_sh   = r.oos_metrics.get("sharpe", np.nan) if r.oos_metrics else np.nan
+        turnover = round(r.annual_turnover * 100, 1)
+
+        g_pass = not np.isnan(gross_sh) and gross_sh > gross_sharpe_threshold
+        n_pass = not np.isnan(net_sh)   and net_sh   > net_sharpe_threshold
+        t_pass = not np.isnan(turnover) and turnover  < max_turnover_pct
+        overall = "✓ PASS" if (g_pass and n_pass and t_pass) else "✗ FAIL"
+
+        rows.append({
+            "strategy":           name,
+            "gross_OOS_Sharpe":   round(gross_sh, 3) if not np.isnan(gross_sh) else "N/A",
+            "net_OOS_Sharpe":     round(net_sh, 3)   if not np.isnan(net_sh)   else "N/A",
+            "annual_turnover%":   turnover,
+            "gross_ok":           "✓" if g_pass else "✗",
+            "net_ok":             "✓" if n_pass else "✗",
+            "turnover_ok":        "✓" if t_pass else "✗",
+            "gate":               overall,
+        })
+
+    if rows:
+        df = pd.DataFrame(rows).set_index("strategy")
+        print(df.to_string())
+    else:
+        print("  All strategies already in live book — nothing to evaluate.")
+    print("=" * 90 + "\n")

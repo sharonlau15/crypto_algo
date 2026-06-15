@@ -676,6 +676,60 @@ class ExhaustionFadeStrategy(BaseStrategy):
         return signals.fillna(0)
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# RESEARCH CANDIDATES — paper/hypothetical only, NOT in LIVE_BOOK_STRATEGIES
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── R1. VOL-SCALED TSMOM ──────────────────────────────────────────────────────
+class TSMOMVolScaledStrategy(BaseStrategy):
+    """
+    Vol-scaled time-series momentum.
+
+    For each token: sign(12-month trailing return) / realized_vol.
+    Position size is inversely proportional to each token's own realized
+    annualized vol — low-vol tokens get larger allocations.
+
+    Key differences from the existing `momentum` strategy:
+      1. Continuous signal (not binary ±1 with hysteresis)
+      2. Sizing driven by realized vol, not rank order
+      3. Optimizer mode (no band-freeze) — weights recomputed every bar
+         using the Max-Sharpe optimizer with vol-scaled signals as μ
+
+    Paper/research only.  Do NOT add to LIVE_BOOK_STRATEGIES until the
+    gross OOS Sharpe passes the research gate.
+    """
+
+    def __init__(self):
+        super().__init__("tsmom_volscaled", STRATEGY_PARAMS["tsmom_volscaled"])
+        # freeze_between_bands = False (optimizer mode, not band-freeze)
+
+    def generate_signals(self, close, returns, **kwargs):
+        p          = self.params
+        lookback   = p["lookback"]    # 252 bars — 12-month trailing return
+        vol_window = p["vol_window"]  # 63 bars — 3-month realized vol
+        min_vol    = p["min_vol"]     # 5% floor prevents 1/vol blow-up
+
+        # ── Direction: sign of 12-month trailing return ────────────────────────
+        trailing_ret = close / close.shift(lookback) - 1
+        direction    = np.sign(trailing_ret)     # +1, 0, or -1
+
+        # ── Vol estimate: 3-month annualized realized vol ──────────────────────
+        realized_vol = returns.rolling(vol_window).std() * np.sqrt(365)
+        realized_vol = realized_vol.clip(lower=min_vol)
+
+        # ── Raw signal: direction ÷ vol (low-vol → larger magnitude) ──────────
+        raw = direction / realized_vol
+
+        # ── Cross-sectional normalization: max |signal| on each bar → ±1 ───────
+        abs_max = raw.abs().max(axis=1).replace(0, np.nan)
+        signals = raw.div(abs_max, axis=0).fillna(0).clip(-1, 1)
+
+        # ── Zero-fill warm-up period (first `lookback` bars have no signal) ────
+        signals = signals.where(trailing_ret.notna(), 0.0)
+
+        return signals
+
+
 # ── Factory ────────────────────────────────────────────────────────────────────
 def get_all_strategies() -> list[BaseStrategy]:
     """Return active strategy instances. VolBreakout disabled (OOS win_rate 30.5%)."""
@@ -689,4 +743,6 @@ def get_all_strategies() -> list[BaseStrategy]:
         CarryStrategy(),
         SentimentStrategy(),
         ExhaustionFadeStrategy(),
+        # ── Research candidates (paper only, excluded from LIVE_BOOK_STRATEGIES) ─
+        TSMOMVolScaledStrategy(),
     ]
