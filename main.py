@@ -158,7 +158,9 @@ def run_backtest_pipeline(use_cache: bool = True):
     # ── Research reporting ─────────────────────────────────────────────────────
     print_overlay_comparison(backtest_results, overlay_results)
     print_oos_correlation_matrix(backtest_results)
-    print_eligibility_gate(backtest_results, live_book=LIVE_BOOK_STRATEGIES)
+    # Merge overlay variants into gate evaluation so momentum_vt / mean_reversion_vt are scored
+    all_results_for_gate = {**backtest_results, **overlay_results}
+    print_eligibility_gate(all_results_for_gate, live_book=LIVE_BOOK_STRATEGIES)
 
     save_results(
         backtest_results = backtest_results,

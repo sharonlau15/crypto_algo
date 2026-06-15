@@ -184,7 +184,7 @@ STRATEGY_PARAMS = {
         "ols_window":    63,        # rolling window for BTC-beta OLS (3 months)
         "mom_lookback":  252,       # cumulative residual lookback (12 months)
         "btc_proxy":    "BTCUSDT",  # factor to strip from each token
-        "signal_smooth": 42,        # EMA span on normalized signal; cuts 3460%→~1200% turnover
+        "signal_smooth": 84,        # EMA span on normalized signal; target <1000% turnover
     },
     "btc_dominance": {
         "btc_proxy":     "BTCUSDT", # BTC column in close/returns
