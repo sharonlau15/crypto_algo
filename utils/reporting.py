@@ -238,15 +238,15 @@ def print_overlay_comparison(
     Side-by-side gross/net OOS Sharpe table for strategies WITH and WITHOUT
     the vol-targeting overlay.  `overlay_results` keys are "{name}_vt".
     """
-    print("\n" + "=" * 90)
-    print("  VOL-TARGETING OVERLAY — EFFECT ON OOS SHARPE")
-    print(f"  (OOS: {BACKTEST_TEST_START} → today | target_vol=15% | band=±20%)")
-    print("=" * 90)
+    logger.info("=" * 90)
+    logger.info("  VOL-TARGETING OVERLAY — EFFECT ON OOS SHARPE")
+    logger.info(f"  (OOS: {BACKTEST_TEST_START} → today | target_vol=15% | band=±20%)")
+    logger.info("=" * 90)
 
     rows = []
     overlay_base_names = {k.replace("_vt", "") for k in overlay_results}
 
-    for name in overlay_base_names:
+    for name in sorted(overlay_base_names):
         if name not in base_results:
             continue
         base = base_results[name]
@@ -273,8 +273,9 @@ def print_overlay_comparison(
 
     if rows:
         df = pd.DataFrame(rows).set_index("strategy")
-        print(df.round(3).to_string())
-    print("=" * 90 + "\n")
+        for line in df.round(3).to_string().splitlines():
+            logger.info(line)
+    logger.info("=" * 90)
 
 
 def print_oos_correlation_matrix(
@@ -303,17 +304,18 @@ def print_oos_correlation_matrix(
             oos_returns[name] = oos
 
     if len(oos_returns) < 2:
-        print("\n[OOS correlation] Insufficient data — skipping.\n")
+        logger.info("[OOS correlation] Insufficient data — skipping.")
         return
 
     corr = pd.DataFrame(oos_returns).dropna(how="all").corr()
     names = sorted(corr.columns)
     corr  = corr.loc[names, names]
 
-    print("\n" + "=" * 90)
-    print(f"  OOS RETURN CORRELATION MATRIX  (post {BACKTEST_TEST_START})")
-    print("=" * 90)
-    print(corr.round(2).to_string())
+    logger.info("=" * 90)
+    logger.info(f"  OOS RETURN CORRELATION MATRIX  (post {BACKTEST_TEST_START})")
+    logger.info("=" * 90)
+    for line in corr.round(2).to_string().splitlines():
+        logger.info(line)
 
     # Flag high-correlation pairs
     flags = []
@@ -325,12 +327,12 @@ def print_oos_correlation_matrix(
                     f"  ⚠  |ρ({names[i]}, {names[j]})| = {rho:.2f} > {flag_threshold}"
                 )
     if flags:
-        print(f"\n  High-correlation pairs (|ρ| > {flag_threshold}):")
+        logger.info(f"  High-correlation pairs (|ρ| > {flag_threshold}):")
         for f in flags:
-            print(f)
+            logger.info(f)
     else:
-        print(f"\n  No pairs with |ρ| > {flag_threshold}.")
-    print("=" * 90 + "\n")
+        logger.info(f"  No pairs with |ρ| > {flag_threshold}.")
+    logger.info("=" * 90)
 
 
 def print_eligibility_gate(
@@ -353,12 +355,14 @@ def print_eligibility_gate(
         from config.settings import LIVE_BOOK_STRATEGIES
         live_book = LIVE_BOOK_STRATEGIES
 
-    print("\n" + "=" * 90)
-    print("  ELIGIBILITY GATE  (research → live promotion criteria)")
-    print(f"  Criteria: gross_OOS_Sharpe > {gross_sharpe_threshold}  "
-          f"AND  net_OOS_Sharpe > {net_sharpe_threshold}  "
-          f"AND  turnover < {max_turnover_pct:.0f}%")
-    print("=" * 90)
+    logger.info("=" * 90)
+    logger.info("  ELIGIBILITY GATE  (research → live promotion criteria)")
+    logger.info(
+        f"  Criteria: gross_OOS_Sharpe > {gross_sharpe_threshold}  "
+        f"AND  net_OOS_Sharpe > {net_sharpe_threshold}  "
+        f"AND  turnover < {max_turnover_pct:.0f}%"
+    )
+    logger.info("=" * 90)
 
     rows = []
     for name, r in backtest_results.items():
@@ -373,22 +377,23 @@ def print_eligibility_gate(
         g_pass = not np.isnan(gross_sh) and gross_sh > gross_sharpe_threshold
         n_pass = not np.isnan(net_sh)   and net_sh   > net_sharpe_threshold
         t_pass = not np.isnan(turnover) and turnover  < max_turnover_pct
-        overall = "✓ PASS" if (g_pass and n_pass and t_pass) else "✗ FAIL"
+        overall = "PASS" if (g_pass and n_pass and t_pass) else "FAIL"
 
         rows.append({
             "strategy":           name,
             "gross_OOS_Sharpe":   round(gross_sh, 3) if not np.isnan(gross_sh) else "N/A",
             "net_OOS_Sharpe":     round(net_sh, 3)   if not np.isnan(net_sh)   else "N/A",
             "annual_turnover%":   turnover,
-            "gross_ok":           "✓" if g_pass else "✗",
-            "net_ok":             "✓" if n_pass else "✗",
-            "turnover_ok":        "✓" if t_pass else "✗",
+            "gross_ok":           "Y" if g_pass else "N",
+            "net_ok":             "Y" if n_pass else "N",
+            "turnover_ok":        "Y" if t_pass else "N",
             "gate":               overall,
         })
 
     if rows:
         df = pd.DataFrame(rows).set_index("strategy")
-        print(df.to_string())
+        for line in df.to_string().splitlines():
+            logger.info(line)
     else:
-        print("  All strategies already in live book — nothing to evaluate.")
-    print("=" * 90 + "\n")
+        logger.info("  All strategies already in live book — nothing to evaluate.")
+    logger.info("=" * 90)
