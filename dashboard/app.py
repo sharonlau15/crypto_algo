@@ -29,6 +29,7 @@ from dashboard.data import (
     get_connection_status,
     get_current_prices,
     get_engine_controls,
+    get_gross_net_sharpe,
     get_hypothetical_nav,
     get_hypothetical_trades,
     get_live_state,
@@ -348,12 +349,6 @@ def _tab_risk_controls() -> dbc.Container:
 
 
 def _tab_strategy_performance() -> dbc.Container:
-    summary_cols = [
-        {"name": c, "id": c} for c in [
-            "strategy", "live_nav", "live_return_pct", "live_trades",
-            "sharpe", "sortino", "max_drawdown", "win_rate",
-        ]
-    ]
     return dbc.Container([
         # ── Comparative NAV chart (all strategies) ────────────────────────────
         dbc.Row([
@@ -452,11 +447,55 @@ def _tab_backtest_results() -> dbc.Container:
         "strategy", "sharpe", "sortino", "calmar", "cagr",
         "max_drawdown", "total_return", "win_rate", "profit_factor",
     ]
+    oos_cols = [
+        "strategy", "gross_sharpe_oos", "net_sharpe_oos", "cost_drag",
+        "annual_turnover_pct", "rebalance_days", "gate",
+    ]
     return dbc.Container([
+        # ── OOS Sharpe + Eligibility Gate ────────────────────────────────────
         dbc.Row([
             dbc.Col(
                 dbc.Card(dbc.CardBody([
-                    html.H6("Strategy Metrics", className="text-muted mb-2"),
+                    html.H6(
+                        "OOS Sharpe & Eligibility Gate  "
+                        "(gross > 0.5 | net > 0 | turnover < 1000%)",
+                        className="text-muted mb-2",
+                    ),
+                    dash_table.DataTable(
+                        id="oos-gate-table",
+                        columns=[
+                            {"name": "Strategy",          "id": "strategy"},
+                            {"name": "Gross OOS Sharpe",  "id": "gross_sharpe_oos"},
+                            {"name": "Net OOS Sharpe",    "id": "net_sharpe_oos"},
+                            {"name": "Cost Drag",         "id": "cost_drag"},
+                            {"name": "Turnover %",        "id": "annual_turnover_pct"},
+                            {"name": "Rebal Days",        "id": "rebalance_days"},
+                            {"name": "Gate",              "id": "gate"},
+                        ],
+                        data=[],
+                        style_header=TABLE_STYLE_HEADER,
+                        style_data=TABLE_STYLE_DATA,
+                        style_cell={"textAlign": "right", "padding": "4px 8px", "fontSize": "0.8rem"},
+                        style_cell_conditional=[
+                            {"if": {"column_id": "strategy"}, "textAlign": "left"},
+                            {"if": {"column_id": "gate"},     "textAlign": "center", "fontWeight": "bold"},
+                        ],
+                        style_data_conditional=[
+                            {"if": {"filter_query": '{gate} = "PASS"'}, "color": "#28a745"},
+                            {"if": {"filter_query": '{gate} = "FAIL"'}, "color": "#dc3545"},
+                        ],
+                        sort_action="native",
+                        page_size=20,
+                    ),
+                ]), style=CARD_STYLE),
+                width=12, className="mb-3 mt-3",
+            ),
+        ]),
+        # ── Full-period metrics ───────────────────────────────────────────────
+        dbc.Row([
+            dbc.Col(
+                dbc.Card(dbc.CardBody([
+                    html.H6("Full-Period Strategy Metrics (from DB)", className="text-muted mb-2"),
                     dash_table.DataTable(
                         id="metrics-table",
                         columns=[{"name": c.replace("_", " ").title(), "id": c} for c in metrics_cols],
@@ -469,9 +508,10 @@ def _tab_backtest_results() -> dbc.Container:
                         page_size=20,
                     ),
                 ]), style=CARD_STYLE),
-                width=12, className="mb-3 mt-3",
+                width=12, className="mb-3",
             ),
         ]),
+        # ── Cumulative returns chart ──────────────────────────────────────────
         dbc.Row([
             dbc.Col(
                 dbc.Card(dbc.CardBody([
@@ -878,6 +918,7 @@ def populate_strategy_dropdown(n_intervals):
 # ── Callback 8 — Backtest results tab ────────────────────────────────────────
 
 @app.callback(
+    Output("oos-gate-table",        "data"),
     Output("metrics-table",         "data"),
     Output("metrics-table",         "columns"),
     Output("backtest-returns-chart","figure"),
@@ -886,6 +927,7 @@ def populate_strategy_dropdown(n_intervals):
 def update_backtest_tab(n_intervals):
     metrics_df = get_strategy_metrics()
     returns_df = get_portfolio_returns()
+    oos_df     = get_gross_net_sharpe()
 
     display_cols = [
         "strategy", "sharpe", "sortino", "calmar", "cagr",
@@ -931,11 +973,7 @@ def update_backtest_tab(n_intervals):
             date_col = returns_df.columns[0]
 
         strategy_cols = [c for c in returns_df.columns if c != date_col]
-        colours = [
-            "#00b4d8", "#f4a261", "#2ec4b6", "#e71d36", "#ff9f1c",
-            "#6a0572", "#48cae4", "#d62828", "#023e8a", "#80b918",
-            "#f72585", "#4361ee",
-        ]
+        colours = STRAT_COLOURS
         for i, col in enumerate(strategy_cols):
             cumret = (1 + returns_df[col].fillna(0)).cumprod()
             fig.add_trace(go.Scatter(
@@ -949,7 +987,10 @@ def update_backtest_tab(n_intervals):
     else:
         fig = _empty_fig("Cumulative Returns (no data)")
 
-    return metrics_data, metrics_cols, fig
+    # OOS gate table
+    oos_gate_data = oos_df.round(3).to_dict("records") if not oos_df.empty else []
+
+    return oos_gate_data, metrics_data, metrics_cols, fig
 
 
 # ── Callback 9 — Connection status ───────────────────────────────────────────
@@ -985,7 +1026,7 @@ def update_connection_status(n_intervals):
 STRAT_COLOURS = [
     "#00b4d8", "#f4a261", "#2ec4b6", "#e71d36", "#ff9f1c",
     "#6a0572", "#48cae4", "#d62828", "#023e8a", "#80b918",
-    "#f72585", "#4361ee",
+    "#f72585", "#4361ee", "#a8dadc", "#e9c46a",
 ]
 
 @app.callback(

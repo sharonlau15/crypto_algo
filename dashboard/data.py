@@ -429,3 +429,34 @@ def get_portfolio_returns() -> pd.DataFrame:
     except Exception as e:
         logger.error(f"get_portfolio_returns failed: {e}")
         return pd.DataFrame()
+
+
+# ── Gross vs net OOS Sharpe + eligibility gate ───────────────────────────────
+
+def get_gross_net_sharpe() -> pd.DataFrame:
+    """
+    Load gross_net_sharpe.csv from RESULT_DIR.
+    Columns: strategy, gross_sharpe_oos, net_sharpe_oos, cost_drag,
+             annual_turnover_pct, rebalance_days.
+    Adds a 'gate' column: PASS / FAIL based on the research gate criteria.
+    """
+    from config.settings import RESEARCH_GATE
+    csv_path = Path(RESULT_DIR) / "gross_net_sharpe.csv"
+    try:
+        if not csv_path.exists():
+            return pd.DataFrame()
+        df = pd.read_csv(csv_path)
+        # Apply eligibility gate
+        g = RESEARCH_GATE
+        df["gate"] = df.apply(
+            lambda r: "PASS" if (
+                r["gross_sharpe_oos"] > g["min_gross_sharpe_oos"]
+                and r["net_sharpe_oos"] > g["min_net_sharpe_oos"]
+                and r["annual_turnover_pct"] < g["max_annual_turnover_pct"]
+            ) else "FAIL",
+            axis=1,
+        )
+        return df.sort_values("net_sharpe_oos", ascending=False)
+    except Exception as e:
+        logger.error(f"get_gross_net_sharpe failed: {e}")
+        return pd.DataFrame()
