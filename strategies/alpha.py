@@ -1,10 +1,10 @@
 """
 strategies/alpha.py
 ===================
-All 10 alpha strategies.
+10 core strategies + 3 research candidates.
 
-Strategy list
--------------
+Core strategies
+---------------
  1. MomentumStrategy          — 12-1 month time-series momentum
  2. MeanReversionStrategy     — z-score mean reversion
  3. CrossSectionalMomentum    — rank-based cross-sectional momentum
@@ -15,6 +15,12 @@ Strategy list
  8. CarryStrategy             — funding rate carry
  9. SentimentStrategy         — Fear & Greed index overlay
 10. ExhaustionFadeStrategy    — BB breach + extreme funding + ADX ranging fade
+
+Research candidates (paper only, excluded from LIVE_BOOK_STRATEGIES)
+---------------------------------------------------------------------
+R1. TSMOMVolScaledStrategy    — vol-scaled time-series momentum
+R2. CarryNeutralStrategy      — cross-sectionally demeaned dollar-neutral carry
+R3. ResidMomentumStrategy     — BTC-beta-neutralized residual momentum
 """
 
 import numpy as np
@@ -730,6 +736,116 @@ class TSMOMVolScaledStrategy(BaseStrategy):
         return signals
 
 
+# ── R2. CARRY NEUTRAL (cross-sectionally demeaned, dollar-neutral) ─────────────
+class CarryNeutralStrategy(BaseStrategy):
+    """
+    Dollar-neutral funding carry — cross-sectional demeaning removes the
+    market-wide funding level so only relative carry is traded.
+
+    Construction (each bar):
+      1. Smooth per-token funding over `funding_lookback` days.
+      2. Subtract the cross-sectional mean: relative_i = funding_i − mean(funding).
+      3. Signal = −relative_i  — high relative funding → SHORT (receive premium).
+
+    Net signal sums to zero across the universe by construction (dollar-neutral).
+    Signal normalized row-wise to [−1, +1].
+
+    Research/paper only.  Do NOT add to LIVE_BOOK_STRATEGIES until the
+    gross OOS Sharpe passes the research gate.
+    """
+
+    def __init__(self):
+        super().__init__("carry_neutral", STRATEGY_PARAMS["carry_neutral"])
+
+    def generate_signals(self, close, returns, **kwargs):
+        funding = kwargs.get("funding_rates")
+        p       = self.params
+        lb      = p["funding_lookback"]
+
+        signals = pd.DataFrame(0.0, index=close.index, columns=close.columns)
+
+        if funding is None or funding.empty:
+            logger.warning("CarryNeutral: no funding data — returning flat signal")
+            return signals
+
+        # Align to price index, forward-fill daily gaps
+        aligned = funding.reindex(close.index, method="ffill")
+
+        # Short rolling smooth to reduce noise in daily funding prints
+        smooth = aligned.rolling(lb, min_periods=max(1, lb // 2)).mean()
+
+        # Cross-sectional demean: each token vs universe average on that day
+        cross_mean = smooth.mean(axis=1)
+        relative   = smooth.sub(cross_mean, axis=0)   # positive = above-avg funding
+
+        # Direction: high positive relative funding → SHORT (we receive the premium)
+        raw = -relative.reindex(columns=close.columns, fill_value=0.0)
+
+        # Row-wise normalization to [−1, +1]
+        abs_max = raw.abs().max(axis=1).replace(0, np.nan)
+        signals = raw.div(abs_max, axis=0).fillna(0).clip(-1, 1)
+
+        return signals
+
+
+# ── R3. RESIDUAL MOMENTUM (BTC-beta-neutralized) ───────────────────────────────
+class ResidMomentumStrategy(BaseStrategy):
+    """
+    Momentum on the BTC-factor-stripped residual return series.
+
+    For each token on each bar:
+      1. Estimate rolling BTC beta via OLS over `ols_window` days:
+             beta_t = cov(r_token, r_btc, w) / var(r_btc, w)
+      2. Strip the BTC factor:  resid_t = r_token − beta_t × r_btc
+      3. Sum residuals over `mom_lookback` days for the idiosyncratic
+         momentum signal.
+
+    Result: correlated-with-BTC moves are removed; the signal captures
+    token-specific winner/loser dynamics only.  Cross-sectionally
+    normalized to [−1, +1].
+
+    Research/paper only.  Do NOT add to LIVE_BOOK_STRATEGIES until the
+    gross OOS Sharpe passes the research gate.
+    """
+
+    def __init__(self):
+        super().__init__("resid_momentum", STRATEGY_PARAMS["resid_momentum"])
+
+    def generate_signals(self, close, returns, **kwargs):
+        p      = self.params
+        ols_w  = p["ols_window"]
+        mom_lb = p["mom_lookback"]
+        proxy  = p.get("btc_proxy", "BTCUSDT")
+
+        signals = pd.DataFrame(0.0, index=close.index, columns=close.columns)
+
+        if proxy not in returns.columns:
+            logger.warning(f"ResidMomentum: BTC proxy '{proxy}' not in returns columns")
+            return signals
+
+        btc_ret      = returns[proxy]
+        roll_var_btc = btc_ret.rolling(ols_w).var()
+
+        # Vectorized rolling beta for each token
+        resid_df = pd.DataFrame(index=returns.index, columns=returns.columns, dtype=float)
+        for sym in returns.columns:
+            roll_cov      = returns[sym].rolling(ols_w).cov(btc_ret)
+            beta          = (roll_cov / roll_var_btc.replace(0, np.nan)).fillna(0)
+            resid_df[sym] = returns[sym] - beta * btc_ret
+
+        # Cumulative residual return as momentum signal
+        cum_resid = resid_df.rolling(mom_lb).sum()
+
+        # Row-wise cross-sectional normalization to [−1, +1]
+        abs_max = cum_resid.abs().max(axis=1).replace(0, np.nan)
+        signals = cum_resid.div(abs_max, axis=0).fillna(0).clip(-1, 1)
+
+        # Zero-fill during warm-up (first ols_window + mom_lookback bars)
+        signals = signals.where(cum_resid.notna(), 0.0)
+
+        return signals
+
+
 # ── Factory ────────────────────────────────────────────────────────────────────
 def get_all_strategies() -> list[BaseStrategy]:
     """Return active strategy instances. VolBreakout disabled (OOS win_rate 30.5%)."""
@@ -745,4 +861,6 @@ def get_all_strategies() -> list[BaseStrategy]:
         ExhaustionFadeStrategy(),
         # ── Research candidates (paper only, excluded from LIVE_BOOK_STRATEGIES) ─
         TSMOMVolScaledStrategy(),
+        CarryNeutralStrategy(),
+        ResidMomentumStrategy(),
     ]

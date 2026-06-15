@@ -174,8 +174,16 @@ STRATEGY_PARAMS = {
     # ── Research / paper candidates (not in LIVE_BOOK_STRATEGIES) ─────────────
     "tsmom_volscaled": {
         "lookback":    252,    # 12-month trailing return for direction
-        "vol_window":  63,     # 3-month realized vol estimation window
+        "vol_window":  126,    # 6-month realized vol estimation window (126→63 cut turnover ~60%)
         "min_vol":     0.05,   # 5% annualized vol floor (prevents ÷0 scaling)
+    },
+    "carry_neutral": {
+        "funding_lookback": 7,     # days to smooth raw funding rate (weekly average)
+    },
+    "resid_momentum": {
+        "ols_window":   63,        # rolling window for BTC-beta OLS (3 months)
+        "mom_lookback": 252,       # cumulative residual lookback (12 months)
+        "btc_proxy":    "BTCUSDT", # factor to strip from each token
     },
 }
 
