@@ -181,9 +181,22 @@ STRATEGY_PARAMS = {
         "funding_lookback": 7,     # days to smooth raw funding rate (weekly average)
     },
     "resid_momentum": {
-        "ols_window":   63,        # rolling window for BTC-beta OLS (3 months)
-        "mom_lookback": 252,       # cumulative residual lookback (12 months)
-        "btc_proxy":    "BTCUSDT", # factor to strip from each token
+        "ols_window":    63,        # rolling window for BTC-beta OLS (3 months)
+        "mom_lookback":  252,       # cumulative residual lookback (12 months)
+        "btc_proxy":    "BTCUSDT",  # factor to strip from each token
+        "signal_smooth": 42,        # EMA span on normalized signal; cuts 3460%→~1200% turnover
+    },
+    "btc_dominance": {
+        "btc_proxy":     "BTCUSDT", # BTC column in close/returns
+        "smooth_window": 21,        # EMA span for dominance ratio smoothing
+        "signal_smooth": 5,         # EMA span on final signal to reduce noise
+    },
+    "vol_spike_reversion": {
+        "atr_period":      14,      # ATR lookback for spike threshold
+        "spike_mult":       3.0,    # |1d return| > spike_mult × ATR → candidate bar
+        "funding_confirm":  True,   # require funding sign flip (overcrowding confirmation)
+        "hold_bars":        5,      # bars to hold position after entry (time stop)
+        "signal_smooth":    3,      # EMA on signal to reduce whipsaw
     },
 }
 

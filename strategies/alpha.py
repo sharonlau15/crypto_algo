@@ -1,7 +1,7 @@
 """
 strategies/alpha.py
 ===================
-10 core strategies + 3 research candidates.
+10 core strategies + 5 research candidates.
 
 Core strategies
 ---------------
@@ -18,9 +18,11 @@ Core strategies
 
 Research candidates (paper only, excluded from LIVE_BOOK_STRATEGIES)
 ---------------------------------------------------------------------
-R1. TSMOMVolScaledStrategy    — vol-scaled time-series momentum
-R2. CarryNeutralStrategy      — cross-sectionally demeaned dollar-neutral carry
-R3. ResidMomentumStrategy     — BTC-beta-neutralized residual momentum
+R1. TSMOMVolScaledStrategy      — vol-scaled time-series momentum
+R2. CarryNeutralStrategy        — cross-sectionally demeaned dollar-neutral carry
+R3. ResidMomentumStrategy       — BTC-beta-neutralized residual momentum
+R4. BTCDominanceStrategy        — signal from BTC's share of universe market action
+R5. VolSpikeReversionStrategy   — fade |1d return| > 3×ATR + funding sign confirmation
 """
 
 import numpy as np
@@ -843,8 +845,186 @@ class ResidMomentumStrategy(BaseStrategy):
         # Zero-fill during warm-up (first ols_window + mom_lookback bars)
         signals = signals.where(cum_resid.notna(), 0.0)
 
+        # EMA smoothing stabilises the daily signal and cuts excess turnover
+        smooth = p.get("signal_smooth", 0)
+        if smooth > 0:
+            signals = signals.ewm(span=smooth, adjust=False).mean().clip(-1, 1)
+
         # returns is one row shorter than close — reindex to match close.index
         return signals.reindex(close.index, fill_value=0.0)
+
+
+# ── R4. BTC DOMINANCE ─────────────────────────────────────────────────────────
+class BTCDominanceStrategy(BaseStrategy):
+    """
+    Signal derived from BTC's share of total universe price-weighted market action.
+
+    Construction:
+      1. BTC dominance ratio = BTC_close / sum(all_close on each bar).
+      2. Smooth with EMA (smooth_window) to remove daily noise.
+      3. Signal = -change in smoothed dominance, applied uniformly to altcoins
+         and inversely to BTC:
+           • Rising BTC dominance → risk-off; go LONG BTC, SHORT altcoins.
+           • Falling BTC dominance → risk-on; go SHORT BTC, LONG altcoins.
+      4. Signal magnitude = |z-score of the smoothed change| clipped to [0, 1].
+
+    Rationale: BTC dominance rising signals crypto-wide risk aversion
+    (capital rotating from altcoins into BTC as the "safe haven" within
+    crypto). Falling dominance signals speculative appetite expanding into
+    altcoins.
+
+    Research/paper only.  Do NOT add to LIVE_BOOK_STRATEGIES until the
+    gross OOS Sharpe passes the research gate.
+    """
+
+    def __init__(self):
+        super().__init__("btc_dominance", STRATEGY_PARAMS["btc_dominance"])
+
+    def generate_signals(self, close, returns, **kwargs):
+        p       = self.params
+        proxy   = p.get("btc_proxy", "BTCUSDT")
+        sm_w    = p["smooth_window"]
+        sig_sm  = p.get("signal_smooth", 0)
+
+        signals = pd.DataFrame(0.0, index=close.index, columns=close.columns)
+
+        if proxy not in close.columns:
+            logger.warning(f"BTCDominance: '{proxy}' not in close columns")
+            return signals
+
+        # Normalize each token's close to its own first valid price (index-rebased)
+        rebased = close.div(close.bfill().iloc[0])
+
+        # BTC share of total universe "market cap proxy"
+        total_mkt    = rebased.sum(axis=1).replace(0, np.nan)
+        dom_raw      = rebased[proxy] / total_mkt
+        dom_smooth   = dom_raw.ewm(span=sm_w, adjust=False).mean()
+
+        # Daily change in smoothed dominance
+        dom_change   = dom_smooth.diff()
+
+        # Z-score of the dominance change (21-day rolling)
+        dom_z = (
+            (dom_change - dom_change.rolling(21).mean())
+            / dom_change.rolling(21).std().replace(0, np.nan)
+        ).clip(-3, 3).fillna(0)
+
+        n_alts = len(close.columns) - 1   # everything except BTC
+
+        for col in close.columns:
+            if col == proxy:
+                # BTC: long when dom rising (risk-off), short when dom falling
+                signals[col] = dom_z.clip(-1, 1)
+            else:
+                if n_alts > 0:
+                    # Altcoins: inverse of BTC signal, split equally
+                    signals[col] = -dom_z.clip(-1, 1) / n_alts
+
+        if sig_sm > 0:
+            signals = signals.ewm(span=sig_sm, adjust=False).mean().clip(-1, 1)
+
+        return signals.fillna(0)
+
+
+# ── R5. VOL SPIKE REVERSION ───────────────────────────────────────────────────
+class VolSpikeReversionStrategy(BaseStrategy):
+    """
+    Fade extreme single-day moves confirmed by overcrowded positioning.
+
+    Entry conditions (all must be true on the same bar):
+      1. |return_t| > spike_mult × ATR(atr_period)   — price spike above ATR band
+      2. funding sign == sign(return_t)               — positioning crowded in
+         the direction of the spike (longs paid on up-spike, shorts paid on down)
+         [only checked when funding_confirm=True]
+
+    Signal direction:
+      +1 if return_t < 0 (down-spike → fade by going long)
+      −1 if return_t > 0 (up-spike  → fade by going short)
+
+    Signal strength = |return_t| / (spike_mult × ATR), clipped to [0, 1].
+    Held for `hold_bars` bars then zeroed (time stop).
+
+    Left-tail focus: this strategy intentionally takes positions AFTER
+    extreme moves, so the strategy itself has low max single-day P&L
+    variance but the entry bars are high-volatility by construction.
+
+    Research/paper only.  Do NOT add to LIVE_BOOK_STRATEGIES until the
+    gross OOS Sharpe passes the research gate.
+    """
+
+    def __init__(self):
+        super().__init__("vol_spike_reversion", STRATEGY_PARAMS["vol_spike_reversion"])
+
+    @staticmethod
+    def _atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int) -> pd.Series:
+        tr = pd.concat([
+            high - low,
+            (high - close.shift(1)).abs(),
+            (low  - close.shift(1)).abs(),
+        ], axis=1).max(axis=1)
+        return tr.rolling(period).mean()
+
+    def generate_signals(self, close, returns, **kwargs):
+        p            = self.params
+        atr_period   = p["atr_period"]
+        spike_mult   = p["spike_mult"]
+        fund_confirm = p["funding_confirm"]
+        hold_bars    = p["hold_bars"]
+        sig_sm       = p.get("signal_smooth", 0)
+
+        high    = kwargs.get("high", close)
+        low     = kwargs.get("low",  close)
+        funding = kwargs.get("funding_rates")
+
+        signals = pd.DataFrame(0.0, index=close.index, columns=close.columns)
+
+        for sym in close.columns:
+            atr       = self._atr(high[sym], low[sym], close[sym], atr_period)
+            threshold = spike_mult * atr                     # |ret| must exceed this
+            ret       = returns[sym].reindex(close.index)   # align to close index
+
+            if (
+                fund_confirm
+                and funding is not None
+                and not funding.empty
+                and sym in funding.columns
+            ):
+                fund = funding[sym].reindex(close.index, method="ffill").fillna(0)
+            else:
+                fund = pd.Series(0.0, index=close.index)
+
+            # Spike detection: large move with funding confirming crowding
+            is_up_spike   = (ret > 0) & (ret > threshold)
+            is_down_spike = (ret < 0) & (ret.abs() > threshold)
+
+            if fund_confirm:
+                # Longs overcrowded on up-spike → fade short
+                up_confirmed   = is_up_spike   & (fund > 0)
+                # Shorts overcrowded on down-spike → fade long
+                down_confirmed = is_down_spike & (fund < 0)
+            else:
+                up_confirmed   = is_up_spike
+                down_confirmed = is_down_spike
+
+            # Signal strength: size of the spike relative to threshold
+            strength = (ret.abs() / threshold.replace(0, np.nan)).clip(0, 1).fillna(0)
+
+            raw = pd.Series(0.0, index=close.index)
+            raw[up_confirmed]   = -strength[up_confirmed]   # short after up-spike
+            raw[down_confirmed] =  strength[down_confirmed] # long after down-spike
+
+            # Hold for `hold_bars` after entry using a rolling max-magnitude window
+            # Forward-fill: entry signal propagates for hold_bars bars
+            held = raw.copy()
+            for shift in range(1, hold_bars):
+                held = held.where(held.abs() >= raw.shift(shift).abs(), raw.shift(shift))
+
+            signals[sym] = held.fillna(0)
+
+        if sig_sm > 0:
+            signals = signals.ewm(span=sig_sm, adjust=False).mean().clip(-1, 1)
+
+        return signals.fillna(0)
 
 
 # ── Factory ────────────────────────────────────────────────────────────────────
@@ -864,4 +1044,6 @@ def get_all_strategies() -> list[BaseStrategy]:
         TSMOMVolScaledStrategy(),
         CarryNeutralStrategy(),
         ResidMomentumStrategy(),
+        BTCDominanceStrategy(),
+        VolSpikeReversionStrategy(),
     ]
