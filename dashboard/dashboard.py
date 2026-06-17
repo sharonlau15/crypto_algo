@@ -62,35 +62,44 @@ def load_backtest_data():
         "regime_performance": None,
         "attribution": None,
         "pnl_summary": None,
+        "_load_error": None,
     }
-    if (f := RESULT_DIR / "strategy_metrics.json").exists():
-        with open(f) as fh:
-            raw = json.load(fh)
-        # Normalise: new format nests under "full"/"in_sample"/"out_of_sample".
-        # Old format is flat ({"sharpe": ...}). Support both.
-        normalised = {}
-        for name, val in raw.items():
-            if "full" in val:
-                normalised[name] = val          # new nested format
-            else:
-                normalised[name] = {            # old flat format — wrap it
-                    "full": val,
-                    "in_sample": val,
-                    "out_of_sample": {"error": "not available — re-run backtest"},
-                }
-        data["metrics"] = normalised
-    if (f := RESULT_DIR / "portfolio_returns.csv").exists():
-        data["returns"] = pd.read_csv(f, index_col=0, parse_dates=True)
-    if (f := RESULT_DIR / "cumulative_returns.csv").exists():
-        data["cumulative_returns"] = pd.read_csv(f, index_col=0, parse_dates=True)
-    if (f := RESULT_DIR / "monthly_seasonality.csv").exists():
-        data["monthly_seasonality"] = pd.read_csv(f, index_col=0)
-    if (f := RESULT_DIR / "regime_performance.csv").exists():
-        data["regime_performance"] = pd.read_csv(f, index_col=0)
-    if (f := RESULT_DIR / "attribution_report.csv").exists():
-        data["attribution"] = pd.read_csv(f, index_col=0)
-    if (f := RESULT_DIR / "pnl_summary.csv").exists():
-        data["pnl_summary"] = pd.read_csv(f, index_col=0)
+    try:
+        if (f := RESULT_DIR / "strategy_metrics.json").exists():
+            with open(f) as fh:
+                raw = json.load(fh)
+            # Normalise: new format nests under "full"/"in_sample"/"out_of_sample".
+            # Old format is flat ({"sharpe": ...}). Support both.
+            normalised = {}
+            for name, val in raw.items():
+                if "full" in val:
+                    normalised[name] = val          # new nested format
+                else:
+                    normalised[name] = {            # old flat format — wrap it
+                        "full": val,
+                        "in_sample": val,
+                        "out_of_sample": {"error": "not available — re-run backtest"},
+                    }
+            data["metrics"] = normalised
+        else:
+            data["_load_error"] = f"strategy_metrics.json not found in {RESULT_DIR}"
+    except Exception as e:
+        data["_load_error"] = f"Failed to load strategy_metrics.json: {e}"
+
+    for key, fname, kw in [
+        ("returns",           "portfolio_returns.csv",  {"index_col": 0, "parse_dates": True}),
+        ("cumulative_returns","cumulative_returns.csv",  {"index_col": 0, "parse_dates": True}),
+        ("monthly_seasonality","monthly_seasonality.csv",{"index_col": 0}),
+        ("regime_performance", "regime_performance.csv", {"index_col": 0}),
+        ("attribution",        "attribution_report.csv", {"index_col": 0}),
+        ("pnl_summary",        "pnl_summary.csv",        {"index_col": 0}),
+    ]:
+        f = RESULT_DIR / fname
+        if f.exists():
+            try:
+                data[key] = pd.read_csv(f, **kw)
+            except Exception as e:
+                pass  # degrade gracefully; individual charts handle None
     return data
 
 
@@ -356,7 +365,12 @@ if section == "📊 Backtest Analysis":
     bt_data = load_backtest_data()
 
     if not bt_data["metrics"]:
-        st.error("No backtest results found. Run: `python main.py --mode backtest`")
+        err = bt_data.get("_load_error")
+        if err:
+            st.error(f"Could not load backtest data: {err}")
+            st.info(f"Results directory: `{RESULT_DIR}`")
+        else:
+            st.error("No backtest results found. Run: `python main.py --mode backtest`")
         st.stop()
 
     raw_metrics = bt_data["metrics"]

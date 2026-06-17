@@ -496,21 +496,24 @@ def run_all_backtests(
         if name not in signals_dict:
             logger.warning(f"No signals for {name} — skipping")
             continue
-        bt = WalkForwardBacktester(
-            signals   = signals_dict[name],
-            close     = close,
-            returns   = returns,
-            optimizer = optimizer,
-        )
-        results[name] = bt.run(
-            strategy_name        = name,
-            freeze_between_bands = getattr(strategy, "freeze_between_bands", False),
-        )
-        r = results[name]
-        oos = r.oos_metrics
-        logger.success(
-            f"{name}: Sharpe={r.metrics.get('sharpe')} | CAGR={r.metrics.get('cagr')}"
-            + (f" | OOS Sharpe={oos.get('sharpe')} OOS CAGR={oos.get('cagr')}"
-               if "error" not in oos else " | OOS: insufficient data")
-        )
+        try:
+            bt = WalkForwardBacktester(
+                signals   = signals_dict[name],
+                close     = close,
+                returns   = returns,
+                optimizer = optimizer,
+            )
+            results[name] = bt.run(
+                strategy_name        = name,
+                freeze_between_bands = getattr(strategy, "freeze_between_bands", False),
+            )
+            r = results[name]
+            oos = r.oos_metrics
+            logger.success(
+                f"{name}: Sharpe={r.metrics.get('sharpe')} | CAGR={r.metrics.get('cagr')}"
+                + (f" | OOS Sharpe={oos.get('sharpe')} OOS CAGR={oos.get('cagr')}"
+                   if "error" not in oos else " | OOS: insufficient data")
+            )
+        except Exception as e:
+            logger.error(f"{name}: backtest failed — {e}. Skipping this strategy.")
     return results
