@@ -21,7 +21,7 @@ import json
 from datetime import datetime, timezone
 from config.settings import UNIVERSE, PORTFOLIO_USDT
 
-RESULT_DIR = Path("results")
+RESULT_DIR = Path(__file__).resolve().parent.parent / "results"
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -52,7 +52,7 @@ st.markdown("""
 
 
 # ── Data loaders ───────────────────────────────────────────────────────────────
-@st.cache_data
+@st.cache_data(ttl=120)
 def load_backtest_data():
     data = {
         "metrics": {},
@@ -230,10 +230,9 @@ with st.sidebar:
 
     st.markdown("---")
     st.caption(f"Updated: {datetime.now().strftime('%H:%M:%S')}")
-    if section in ["🟢 Live Trading (Futures)", "📈 Strategy Monitor"]:
-        if st.button("🔄 Refresh live data"):
-            st.cache_data.clear()
-            st.rerun()
+    if st.button("🔄 Refresh"):
+        st.cache_data.clear()
+        st.rerun()
 
 
 # ── Backtest plot helpers ──────────────────────────────────────────────────────
