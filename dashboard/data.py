@@ -220,7 +220,8 @@ def get_strategy_metrics() -> pd.DataFrame:
 
             rows = cur.fetchall()
             if not rows:
-                return pd.DataFrame(columns=cols_used)
+                logger.warning("strategy_metrics table is empty — falling back to JSON")
+                return get_strategy_metrics_json()
             df = pd.DataFrame(rows, columns=cols_used)
             for c in df.columns:
                 if c not in ("strategy", "recorded_at"):
@@ -228,7 +229,7 @@ def get_strategy_metrics() -> pd.DataFrame:
             return df
     except Exception as e:
         logger.error(f"get_strategy_metrics failed: {e}")
-        return pd.DataFrame(columns=base_cols)
+        return get_strategy_metrics_json()
 
 
 # ── Hypothetical strategies ───────────────────────────────────────────────────
@@ -436,16 +437,73 @@ def get_portfolio_returns() -> pd.DataFrame:
     """
     Load portfolio_returns.csv from RESULT_DIR if it exists.
     Returns an empty DataFrame if the file is missing or unreadable.
+    Date column is parsed to UTC-aware Timestamps so plotly renders a proper
+    time axis instead of falling back to integers.
     """
     csv_path = Path(RESULT_DIR) / "portfolio_returns.csv"
     try:
         if not csv_path.exists():
             return pd.DataFrame()
         df = pd.read_csv(csv_path)
+        for col in ["date", "Date", "recorded_at"]:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], utc=True)
+                break
         return df
     except Exception as e:
         logger.error(f"get_portfolio_returns failed: {e}")
         return pd.DataFrame()
+
+
+# ── Strategy metrics JSON fallback ────────────────────────────────────────────
+
+def get_strategy_metrics_json() -> pd.DataFrame:
+    """
+    Read strategy metrics from strategy_metrics.json in RESULT_DIR.
+
+    Handles both the old flat format (pre-nested) and the new nested format
+    {name: {full: {...}, in_sample: {...}, out_of_sample: {...}}}.
+    Returns empty DataFrame on failure.
+    """
+    json_path = Path(RESULT_DIR) / "strategy_metrics.json"
+    base_cols = [
+        "strategy", "sharpe", "sortino", "calmar", "cagr",
+        "max_drawdown", "total_return", "win_rate", "profit_factor",
+        "net_sharpe_oos",
+    ]
+    try:
+        if not json_path.exists():
+            return pd.DataFrame(columns=base_cols)
+        with open(json_path) as f:
+            data = json.load(f)
+        rows = []
+        for name, val in data.items():
+            if "full" in val:
+                m   = val["full"]
+                oos = val.get("out_of_sample", {})
+            else:
+                m   = val
+                oos = {}
+            rows.append({
+                "strategy":       name,
+                "sharpe":         m.get("sharpe"),
+                "sortino":        m.get("sortino"),
+                "calmar":         m.get("calmar"),
+                "cagr":           m.get("cagr"),
+                "max_drawdown":   m.get("max_drawdown"),
+                "total_return":   m.get("total_return"),
+                "win_rate":       m.get("win_rate"),
+                "profit_factor":  m.get("profit_factor"),
+                "net_sharpe_oos": oos.get("sharpe") if oos else None,
+            })
+        df = pd.DataFrame(rows)
+        for c in df.columns:
+            if c != "strategy":
+                df[c] = pd.to_numeric(df[c], errors="coerce")
+        return df.sort_values("sharpe", ascending=False, na_position="last")
+    except Exception as e:
+        logger.error(f"get_strategy_metrics_json failed: {e}")
+        return pd.DataFrame(columns=base_cols)
 
 
 # ── Gross vs net OOS Sharpe + eligibility gate ───────────────────────────────
