@@ -96,17 +96,17 @@ Market Data → 10 Strategies → Signals → Selector (Regime + Live P&L) → O
         │        optimize weights → compare to live →       │
         │        execute futures orders if delta > threshold │
         │                                                   │
-        │  State: results/live_state.json (atomic writes)   │
+        │  State: PostgreSQL live_state table (via db/state.py)   │
         └───────────────────────────────────────────────────┘
                 │
                 ▼
         ┌───────────────────────────────────────────────────┐
-        │           DASHBOARD (dashboard.py)                │
+        │           DASHBOARD (dashboard/app.py)            │
         │                                                   │
-        │  streamlit run dashboard.py                       │
+        │  python3 dashboard/app.py  (Dash, port 8050)      │
         │  ├── Backtest Analysis tab                        │
         │  ├── Live Trading (Futures) tab                   │
-        │  │     Reads live_state.json (30s TTL)            │
+        │  │     Reads PostgreSQL live_state table          │
         │  │     Fetches live positions from Binance        │
         │  │     Futures API (wallet balance + positions)   │
         │  └── Strategy Monitor tab                         │
@@ -123,8 +123,8 @@ crypto_algo/
 ├── Binance.env                    ← API keys (gitignored)
 │
 ├── dashboard/
-│   ├── dashboard.py               ← Streamlit dashboard
-│   └── run_dashboard.sh           ← Dashboard launcher script
+│   ├── app.py                     ← Dash dashboard (port 8050)
+│   └── data.py                    ← Dashboard data-access helpers (DB + JSON fallback)
 │
 ├── diagnostics/
 │   ├── debug_futures.py           ← Futures API connectivity diagnostic
@@ -163,8 +163,10 @@ crypto_algo/
 │   ├── logger.py                  ← Loguru setup
 │   └── reporting.py               ← Console tables + CSV/JSON output
 │
+├── tests/
+│   └── test_vt_equivalence.py     ← Equivalence tests for VT overlay live port
+│
 ├── results/                       ← Auto-generated (gitignored)
-│   ├── live_state.json            ← Live positions, wallet balance, NAV history
 │   ├── strategy_metrics.json
 │   ├── portfolio_returns.csv
 │   └── ...
@@ -278,8 +280,8 @@ python3 main.py --mode live --run-now
 # Print current positions and NAV from state file
 python3 main.py --mode report
 
-# Launch the interactive dashboard (separate terminal)
-streamlit run dashboard.py
+# Launch the interactive dashboard (separate terminal, port 8050)
+python3 dashboard/app.py
 ```
 
 ### What `--mode full` does step by step:
@@ -692,29 +694,39 @@ Steps:
 ### Why signal-driven (not clock-driven)?
 If BTC surges 10% at 3am, the system rebalances within 1 minute regardless of schedule. If the market is flat, no unnecessary trading occurs even when the scheduler fires.
 
-### State file
-`results/live_state.json` — written atomically via `.tmp` rename (POSIX atomic) so a crash mid-write never produces a corrupted file. Key fields:
+### State persistence — PostgreSQL
+State is stored in PostgreSQL (configured via `DB_URL` in `config/settings.py`, managed via `db/state.py`). Key tables:
 
-```json
-{
-  "positions":        {"BTCUSDT": 0.012345, "ETHUSDT": -0.5, ...},
-  "cash_usdt":        7234.56,
-  "initial_nav":      10802.74,
-  "nav_history":      [{"date": "...", "nav": 10234.56}, ...],
-  "current_weights":  {"BTCUSDT": 0.20, "ETHUSDT": -0.15, ...},
-  "position_entries": {"BTCUSDT": {"entry_price": 65000, "entry_date": "...", "peak_price": 66000}},
-  "trade_log":        [{"time": "...", "symbol": "BTCUSDT", "side": "BUY", "qty": 0.012, ...}],
-  "active_strategies": ["momentum", "cross_sectional_momentum"],
-  "active_strategy_weights": {"momentum": 0.6, "cross_sectional_momentum": 0.4},
-  "latest_signals":   {"momentum": {"BTCUSDT": 1.0, "ETHUSDT": -0.5, ...}, ...},
-  "hypothetical":     {"momentum": {"nav": 10500, "weights": {...}, ...}, ...}
-}
-```
+| Table | Content |
+|-------|---------|
+| `live_state` | Core row: positions (signed), cash, weights, active strategies, VT scale |
+| `position_entries` | Per-symbol entry price, date, peak price |
+| `nav_history` | Timestamped NAV series (last 2880 rows loaded) |
+| `trade_log` | All executed orders with P&L |
+| `hypothetical_nav` | Per-strategy paper portfolio NAV history |
+| `hypothetical_trades` | Per-strategy paper portfolio trade history |
+| `hypothetical_strategy_state` | Per-strategy weights/prices for NAV continuity across restarts |
+
+`active_strategy_weights` also stores `_vt_scale` — the persisted vol-target scaling factor (see VT overlay below).
 
 Note: `positions[sym]` is **signed** — positive = long, negative = short. `cash_usdt` = futures wallet balance (USDT), synced from Binance each cycle.
 
-### Bootstrapping on fresh start (no state file)
-When `live_state.json` doesn't exist, `load_state()` calls `_bootstrap_from_binance()`:
+### Vol-target overlay in the live path
+After computing bare momentum weights, `compute_target_weights()` applies the same vol-targeting overlay as the backtest's `overlay_backtest_result()` (parameters from `VOL_TARGET_PARAMS`):
+
+```
+target_vol = 15%,  band = ±20%  (corridor: 12%–18%)
+vol_window = 63 days,  max_scale = 2×
+```
+
+The overlay scales the entire weight vector so realized 63-day portfolio vol stays near 15%. The scalar only updates when realized vol exits the ±20% band (reduces turnover). The current scale is persisted in `active_strategy_weights["_vt_scale"]` in PostgreSQL so the band state survives engine restarts without recomputing the full history.
+
+Equivalence is proven in `tests/test_vt_equivalence.py` (4 tests, rtol=1e-12): given the same weights and returns, the live incremental path produces scales identical to the batch backtest overlay.
+
+The live weight path **never** calls the max-Sharpe optimizer — `MIN_ANNUALIZED_VOL` remains inert in the live path.
+
+### Bootstrapping on fresh start (no Postgres row)
+When the `live_state` Postgres table has no row yet, `load_state()` calls `_bootstrap_from_binance()`:
 1. Reads actual signed position quantities from the Binance Futures account
 2. Reads entry prices for open positions from Binance (`entryPrice` field)
 3. Reads actual USDT wallet balance from the futures account
@@ -742,9 +754,9 @@ If NAV is zero or negative (unfunded futures wallet), the engine logs a CRITICAL
 ### Position-level
 | Control | Value | Trigger |
 |---------|-------|---------|
-| `STOP_LOSS_PCT = 0.02` | 2% | Exit if signed P&L drops below -2% |
-| `TAKE_PROFIT_PCT = 0.03` | 3% | Exit if signed P&L exceeds +3% |
-| `TRAILING_STOP_PCT = 0.05` | 5% | Exit if price moves 5% against peak/trough |
+| `STOP_LOSS_PCT = 0.06` | 6% | Exit if signed P&L drops below -6% |
+| `TAKE_PROFIT_PCT = 0.12` | 12% | Exit if signed P&L exceeds +12% |
+| `TRAILING_STOP_PCT = 0.10` | 10% | Exit if price moves 10% against peak/trough |
 | `USE_TRAILING_STOP = True` | on | Trailing stop is active |
 
 ### Execution safety
@@ -787,55 +799,44 @@ All profits stay in the portfolio. As wallet balance grows from realized gains, 
 
 ## 16. Dashboard
 
-**File:** `dashboard.py`  
-**Command:** `streamlit run dashboard.py`
+**File:** `dashboard/app.py`  
+**Command:** `python3 dashboard/app.py`  
+**URL:** `http://<server-ip>:8050`
 
-The dashboard has three main sections selectable from the sidebar.
+Built with Plotly Dash. Data is sourced from PostgreSQL via `dashboard/data.py`, with automatic fallback to `results/strategy_metrics.json` and CSV files when the DB has no rows (e.g., immediately after a fresh backtest before the DB is populated).
 
-### Backtest Analysis
+### Backtest Analysis tab
+- OOS research gate table — strategies ranked by gross/net OOS Sharpe; PASS/FAIL against `RESEARCH_GATE` thresholds
 - Strategy performance comparison (Sharpe, CAGR, Max Drawdown, Sortino, Calmar) — full period, IS, OOS
 - Cumulative NAV curves for all strategies
 - In-sample vs Out-of-sample comparison table
 - Monthly seasonality heatmap (strategy × month)
 - Regime performance heatmap (strategy × bull/bear/sideways)
 - Factor attribution table (beta to BTC, ETH, vol, momentum, carry)
-- P&L summary
 
-### Live Trading (Futures)
+### Live Trading tab
 
-**Active Strategy Banner** — shows which 1–2 strategies are currently active with blend percentages. Explained as: "70% Momentum + 30% Cross-Sectional Momentum" driven by backtest regime/seasonality score + 48h live rolling Sharpe.
+**Active Strategy Banner** — which strategies are live-book active with blend percentages. Driven by `LIVE_BOOK_STRATEGIES` (currently `["momentum"]`).
 
-**NAV Metrics** — five headline numbers:
-- Futures NAV (wallet balance + unrealized PnL from Binance Futures API)
+**NAV Metrics** — headline numbers from the PostgreSQL `live_state` table:
+- Futures NAV (wallet balance + unrealized PnL)
 - Wallet Balance (USDT from Binance Futures — includes all realized PnL)
-- Unrealized PnL (sum of open position mark-to-market)
-- Open positions count
-- Total P&L (vs `initial_nav` stamped from real Binance account on first cycle)
+- Unrealized PnL, open positions count, total P&L vs `initial_nav`
 
-**NAV History Chart** — time series from `nav_history` with the opening balance baseline.
+**NAV History Chart** — time series from `nav_history` Postgres table.
 
-**Open Positions Table** — shows:
-- Token, Side (LONG/SHORT), quantity, entry price, live price (from Binance Futures ticker), market value
-- Unrealized P&L % and $ — direction-corrected (shorts profit when price falls)
-- Entry date
+**Open Positions Table** — token, side (LONG/SHORT), quantity, entry price, live price, market value, unrealized P&L % and $ (direction-corrected for shorts), entry date.
 
-Position quantities and prices come directly from the Binance Futures API via `fetch_binance_live_balances()`. Cached for 30 seconds. Falls back to cached OHLCV + state file if Binance is unreachable.
+**Position Risk Tracker** — entry price, peak/trough reference, current price, signed P&L%, stop-loss and take-profit levels.
 
-**Position Risk Tracker** — entry price, peak/trough reference, current price, signed P&L%, drawdown from reference, stop-loss and take-profit levels (correct direction for both longs and shorts).
+**Signal Heatmap** — strategies × tokens matrix showing current signal strength. Green = long, Red = short, Grey = neutral.
 
-**Signal Heatmap** — a strategies × tokens matrix showing each strategy's current signal strength. Green = long, Red = short, Grey = neutral. Active strategies marked with ★.
+**Live Trading History** — actual Binance Futures Demo orders from the `trade_log` table.
 
-**Live Trading History** — actual orders placed on Binance Futures Demo, color-coded (green BUY, red SELL), with realized P&L for closing trades.
+**Hypothetical Strategy Competition** — all strategies running as paper portfolios tracked in `hypothetical_nav` Postgres table. Each shows NAV curve, current weights, and trade history.
 
-**Hypothetical Strategy Competition** — all 10 strategies running as paper portfolios. Ranked by 7-day return. Each shows its own NAV curve, current weights, trade history, and realized P&L. This is how the live feedback loop is visualized.
-
-**Auto-refresh:** Dashboard reads state every 30 seconds. Binance balance data also cached 30 seconds.
-
-### Strategy Monitor
-Signal snapshots, regime analysis, and seasonality data for all 10 strategies.
-
-### JSON corruption recovery
-If `live_state.json` is corrupted (rare — only if the server crashes mid-write), the dashboard uses `json.JSONDecoder().raw_decode()` to recover the first valid JSON object from the file. Atomic writes (`.tmp` → rename) prevent this in normal operation.
+### Strategy Monitor tab
+Signal snapshots, regime analysis, and seasonality data for all strategies.
 
 ---
 
@@ -939,9 +940,9 @@ All parameters are in `config/settings.py`. Never hardcode values in strategy fi
 ### Position risk
 | Parameter | Value | Meaning |
 |-----------|-------|---------|
-| `STOP_LOSS_PCT` | `0.02` | 2% hard stop (direction-aware) |
-| `TAKE_PROFIT_PCT` | `0.03` | 3% take profit (direction-aware) |
-| `TRAILING_STOP_PCT` | `0.05` | 5% trail from peak/trough |
+| `STOP_LOSS_PCT` | `0.06` | 6% hard stop (direction-aware) |
+| `TAKE_PROFIT_PCT` | `0.12` | 12% take profit (direction-aware) |
+| `TRAILING_STOP_PCT` | `0.10` | 10% trail from peak/trough |
 | `USE_TRAILING_STOP` | `True` | Trailing stop enabled |
 
 ### Live engine
@@ -950,13 +951,15 @@ All parameters are in `config/settings.py`. Never hardcode values in strategy fi
 | `PAPER_TRADING` | `True` | Demo Futures only (never live) |
 | `FUTURES_LEVERAGE` | `1` | Leverage set on all symbols at startup |
 | `ORDER_TYPE` | `"MARKET"` | Market orders |
-| `SLIPPAGE_BP` | `5` | 5 bps assumed slippage (backtest only) |
+| `SLIPPAGE_BP` | `15` | 15 bps assumed slippage (realistic for thin alts) |
 | `PORTFOLIO_USDT` | `10_000` | Hypothetical paper portfolio baseline only — live account capital read from Binance |
 | `MIN_ORDER_USDT` | `11` | Minimum order value |
 | `SIGNAL_RECOMPUTE_MINS` | `1` | Signal recompute frequency |
-| `PRICE_MONITOR_SECS` | `60` | Stop/TP check frequency |
-| `REBALANCE_THRESHOLD` | `0.03` | Minimum Σ\|Δweight\| to trade |
+| `PRICE_MONITOR_SECS` | `300` | Stop/TP check frequency (every 5 min) |
+| `REBALANCE_THRESHOLD` | `0.15` | Minimum Σ\|Δweight\| to trade (15%) |
 | `MAX_LIVE_POSITIONS` | `6` | Max simultaneous positions per side |
+| `LIVE_BOOK_STRATEGIES` | `["momentum"]` | Strategies active in live trading |
+| `LIVE_REBALANCE_FREQ_DAYS` | `7` | Minimum days between live rebalances |
 
 ---
 
@@ -981,10 +984,11 @@ All outputs written to `results/` after a backtest run.
 
 ## 21. Deployment (Server)
 
-### Initial deployment
+### Server setup (DigitalOcean / Ubuntu)
+
+The system runs as three persistent `screen` sessions on `/opt/crypto_algo`.
 
 ```bash
-# On server
 cd /opt/crypto_algo
 git pull origin main
 source venv/bin/activate
@@ -997,50 +1001,84 @@ BINANCE_DEMO_API_KEY=your_demo_futures_key
 BINANCE_DEMO_API_SECRET=your_demo_futures_secret
 EOF
 
-# Verify futures connectivity before starting
+# Verify connectivity before starting
 python3 debug_futures.py
 
-# Clear any stale results from previous runs
-rm -f results/*.csv results/*.json
+# Start live engine
+screen -S engine
+python3 main.py --mode live --run-now 2>&1 | tee -a logs/engine.log
+# Ctrl+A, D to detach
 
-# Start live engine in tmux (keeps running after SSH disconnect)
-tmux new-session -d -s crypto "source venv/bin/activate && python3 main.py --mode full --run-now 2>&1 | tee logs/main.log"
-
-# Start dashboard in separate window
-tmux new-window -t crypto "source venv/bin/activate && streamlit run dashboard.py --server.port 8501"
+# Start Dash dashboard (port 8050)
+screen -S dashboard
+python3 dashboard/app.py 2>&1 | tee -a logs/dashboard.log
+# Ctrl+A, D to detach
 ```
+
+Open port 8050 if not already open:
+```bash
+ufw allow 8050/tcp
+```
+
+Access at `http://<server-ip>:8050`.
 
 ### Pulling updates
 
 ```bash
 cd /opt/crypto_algo && git pull
-# Restart the live engine to pick up code changes:
-tmux send-keys -t crypto C-c   # stop old session
-tmux send-keys -t crypto "python3 main.py --mode full --run-now" Enter
+
+# Restart dashboard to pick up code changes:
+screen -r dashboard   # Ctrl+C to stop
+python3 dashboard/app.py 2>&1 | tee -a logs/dashboard.log
+# Ctrl+A, D
+
+# Restart engine only if engine code changed:
+screen -r engine      # Ctrl+C to stop
+python3 main.py --mode live --run-now 2>&1 | tee -a logs/engine.log
+# Ctrl+A, D
 ```
 
-No need to delete `live_state.json` on a normal code update. The engine reads the state file and continues from where it left off.
+Postgres state persists across restarts — the engine picks up from the last saved state automatically.
+
+### Running a fresh backtest
+
+Stop the engine first to avoid Binance rate-limit bans (both processes hammering the API simultaneously triggers IP bans):
+
+```bash
+screen -r engine      # Ctrl+C
+python3 main.py --mode backtest 2>&1 | tee -a logs/backtest.log
+# After it finishes, restart the engine:
+python3 main.py --mode live --run-now 2>&1 | tee -a logs/engine.log
+# Ctrl+A, D
+```
 
 ### Resetting the live state (fresh start)
 
-Only do this if the state is corrupted or you want a fresh baseline:
+Only do this if you want a true fresh baseline:
 
 ```bash
-# Delete all results and restart
+# Truncate the live_state Postgres tables
+psql -U sharonlau15 -d crypto_algo -c "
+  DELETE FROM live_state;
+  DELETE FROM position_entries;
+  DELETE FROM nav_history;
+  DELETE FROM trade_log;
+"
+# Also clear result files if desired
 rm -f results/*.csv results/*.json
-python3 main.py --mode full --run-now
+python3 main.py --mode full --run-now 2>&1 | tee -a logs/engine.log
 ```
 
-On restart with no state file, the engine calls `_bootstrap_from_binance()` to read actual token positions and wallet balance from Binance Futures and reconstruct state. `initial_nav` is stamped from the real account equity on the first reconciliation cycle.
+On first run with no `live_state` row, the engine calls `_bootstrap_from_binance()` to read actual positions and wallet balance and stamp `initial_nav`.
 
 ### Viewing live logs
 
 ```bash
-# Follow live engine logs
-tail -f logs/live_engine.log
-
-# Or if using tmux
-tmux attach -t crypto
+tail -f /opt/crypto_algo/logs/engine.log
+tail -f /opt/crypto_algo/logs/dashboard.log
+# Re-attach to a session:
+screen -r engine
+screen -r dashboard
 ```
 
 ---
@@ -1056,7 +1094,7 @@ tmux attach -t crypto
 2. The delta comparison uses actual live positions (from Binance reconciliation) vs new target. If your positions already match the target, delta will be near zero.
 
 ### Q: How do I know which strategy is currently active?
-**A:** Check the Active Strategy Banner at the top of the Live Trading tab in the dashboard. It shows strategy names and blend percentages. You can also check `results/live_state.json` → `active_strategies` and `active_strategy_weights`.
+**A:** Check the Active Strategy Banner at the top of the Live Trading tab in the dashboard (`http://<server-ip>:8050`). It shows strategy names and blend percentages. You can also query Postgres: `SELECT active_strategies, active_strategy_weights FROM live_state WHERE id=1;`
 
 ### Q: Why does Risk Parity sometimes show "no signals"?
 **A:** If a token in the universe has stale/zero price data (historically MATICUSDT after the MATIC→POL migration), its rolling volatility is zero, making inverse-vol infinite. The code handles this by replacing `inf` with `nan` and using `skipna=True` so the stale token is excluded. MATICUSDT has been replaced with POLUSDT in the universe.
@@ -1065,7 +1103,7 @@ tmux attach -t crypto
 **A:** This comes from the portfolio optimizer computing `√(wᵀΣw)` where floating-point rounding in near-singular covariance matrices can produce a tiny negative number. All sqrt calls are guarded with `max(0.0, ...)`. These warnings do not affect results.
 
 ### Q: If I update the code and restart, do I lose my position history?
-**A:** No. `live_state.json` persists on disk. The engine reads it on startup and continues from the last known state. Only delete the state file if you want a true fresh start.
+**A:** No. State is stored in PostgreSQL and persists across restarts. The engine reads from the `live_state` table on startup and continues from where it left off. Only truncate the DB tables if you want a true fresh start.
 
 ### Q: Do profits get reinvested?
 **A:** Yes. All profits stay in the portfolio. As the futures wallet balance grows from realized gains, the next rebalance sizes positions based on the higher NAV, compounding returns automatically.
@@ -1094,7 +1132,7 @@ Known limitations: daily bars mean intraday price impact is not modeled; funding
 **A:** Run `python3 debug_futures.py`. It checks both the real Binance connection (for market data) and the demo futures connection (for orders and account balance), and prints your wallet balance. Use this any time you suspect a connectivity issue.
 
 ### Q: The dashboard says "Binance unavailable" — what does that mean?
-**A:** `fetch_binance_live_balances()` failed to reach the Binance Futures API. The dashboard automatically falls back to reading positions from the state file and prices from cached OHLCV parquet files. This fallback is clearly labeled in the UI. Check your demo API key and run `python3 debug_futures.py` to diagnose.
+**A:** `fetch_binance_live_balances()` failed to reach the Binance Futures API. The dashboard automatically falls back to reading positions from PostgreSQL and prices from cached OHLCV parquet files. This fallback is clearly labeled in the UI. Check your demo API key and run `python3 debug_futures.py` to diagnose. If the IP is banned (Binance rate-limit), check the ban expiry: `python3 -c "import time; print(time.time())"` and compare to the ban timestamp in the error.
 
 ### Q: Why is cash sometimes slightly off from what I expect?
 **A:** Cash (`cash_usdt`) is the USDT wallet balance from Binance Futures, reconciled every cycle. Minor discrepancies between cycles can arise from lot-size rounding and fee deduction timing. These differences are small and self-correct on the next reconciliation.
