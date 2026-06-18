@@ -563,11 +563,18 @@ def compute_target_weights(
     seasonality_analyzer,
     signals_dict: dict,
     close: pd.DataFrame,
+    returns: pd.DataFrame,
+    state: dict,
     hypotheticals: dict = None,
 ) -> tuple:
-    """Return (target_weights, active_selection) for the LIVE futures portfolio.
+    """Return (target_weights, active_selection, vt_scale) for the LIVE futures portfolio.
     Live book: LIVE_BOOK_STRATEGIES only, inverse-vol (equal-risk) weighted.
+    Weights are scaled by the vol-target overlay (VOL_TARGET_PARAMS), matching
+    overlay_backtest_result() given the same input weights and returns.
     """
+    from portfolio.optimizer import compute_live_vt_scale
+    from config.settings import VOL_TARGET_PARAMS, MAX_POSITION_SIZE
+
     vols = {}
     if hypotheticals:
         for name in LIVE_BOOK_STRATEGIES:
@@ -587,11 +594,11 @@ def compute_target_weights(
     if len(vols) == len(LIVE_BOOK_STRATEGIES):
         inv_vols = {n: 1.0 / max(v, 1e-6) for n, v in vols.items()}
         total    = sum(inv_vols.values())
-        weights  = {n: inv_vols[n] / total for n in LIVE_BOOK_STRATEGIES}
+        strat_w  = {n: inv_vols[n] / total for n in LIVE_BOOK_STRATEGIES}
     else:
-        weights = {n: 1.0 / len(LIVE_BOOK_STRATEGIES) for n in LIVE_BOOK_STRATEGIES}
+        strat_w = {n: 1.0 / len(LIVE_BOOK_STRATEGIES) for n in LIVE_BOOK_STRATEGIES}
 
-    selection = [(n, round(weights[n], 4)) for n in LIVE_BOOK_STRATEGIES]
+    selection = [(n, round(strat_w[n], 4)) for n in LIVE_BOOK_STRATEGIES]
     logger.info(f"Live book (equal-risk weighted): {selection}")
 
     live_sigs = {k: v for k, v in signals_dict.items() if k in LIVE_BOOK_STRATEGIES}
@@ -600,9 +607,52 @@ def compute_target_weights(
 
     if current_sigs.abs().max() == 0:
         logger.warning("No signals from live strategies — holding current positions")
-        return pd.Series(0.0, index=UNIVERSE), selection
+        return pd.Series(0.0, index=UNIVERSE), selection, 1.0
 
-    return _signal_to_weights(current_sigs, long_short=True), selection
+    bare_weights = _signal_to_weights(current_sigs, long_short=True)
+    # Live weight path never calls the optimizer — MIN_ANNUALIZED_VOL stays inert.
+    assert "optimizer" not in compute_target_weights.__qualname__
+
+    # ── Vol-target overlay (matches overlay_backtest_result exactly) ───────────
+    vp          = VOL_TARGET_PARAMS
+    vol_window  = vp["vol_window"]
+    loaded_scale = float(
+        state.get("active_strategy_weights", {}).get("_vt_scale", 1.0)
+    )
+
+    # Build proxy weight history for the vol window by applying _signal_to_weights
+    # bar-by-bar over the last vol_window momentum signal rows.
+    mom_sigs = signals_dict.get("momentum")
+    vt_scale = loaded_scale  # fallback: no update if insufficient history
+
+    if (
+        mom_sigs is not None
+        and len(mom_sigs) >= vol_window
+        and not returns.empty
+    ):
+        try:
+            recent_sigs = mom_sigs.iloc[-vol_window:]
+            weight_rows = [
+                _signal_to_weights(row.reindex(UNIVERSE, fill_value=0), long_short=True)
+                for _, row in recent_sigs.iterrows()
+            ]
+            weights_window = pd.DataFrame(weight_rows, index=recent_sigs.index)
+            common_idx     = weights_window.index.intersection(returns.index)
+            if len(common_idx) >= 2:
+                vt_scale = compute_live_vt_scale(
+                    weights_window = weights_window.reindex(common_idx),
+                    returns_window = returns.reindex(common_idx),
+                    loaded_scale   = loaded_scale,
+                    **vp,
+                )
+                logger.info(
+                    f"VT overlay: scale={vt_scale:.4f} (prev={loaded_scale:.4f})"
+                )
+        except Exception as e:
+            logger.warning(f"VT overlay failed ({e}) — using loaded scale {loaded_scale:.4f}")
+
+    scaled = (bare_weights * vt_scale).clip(-MAX_POSITION_SIZE, MAX_POSITION_SIZE)
+    return scaled, selection, vt_scale
 
 
 # ── Hypothetical paper portfolios (all 10 strategies simultaneously) ───────────
@@ -973,14 +1023,17 @@ def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: d
             state["active_strategies"]       = ["MANUAL_OVERRIDE"]
             state["active_strategy_weights"] = {"MANUAL_OVERRIDE": 1.0}
         else:
-            new_weights, active_sel = compute_target_weights(
+            new_weights, active_sel, new_vt_scale = compute_target_weights(
                 seasonality_analyzer=seasonality_analyzer,
                 signals_dict=signals_dict,
                 close=close,
+                returns=returns,
+                state=state,
                 hypotheticals=state.get("hypothetical", {}),
             )
             state["active_strategies"]       = [name for name, _ in active_sel]
             state["active_strategy_weights"] = {name: round(w, 4) for name, w in active_sel}
+            state["active_strategy_weights"]["_vt_scale"] = round(new_vt_scale, 6)
     except Exception as e:
         logger.error(f"Weight computation failed: {e}")
         save_state(state)  # persist hypotheticals even on error

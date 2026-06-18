@@ -226,6 +226,66 @@ def apply_vol_target_overlay(
     return scaled.reindex(weights.index).fillna(0.0)
 
 
+def compute_live_vt_scale(
+    weights_window: pd.DataFrame,
+    returns_window: pd.DataFrame,
+    loaded_scale:   float = 1.0,
+    target_vol:     float = 0.15,
+    band:           float = 0.20,
+    vol_window:     int   = 63,
+    max_scale:      float = 2.0,
+) -> float:
+    """
+    Incremental vol-target scale update for the live engine.
+
+    Mathematically equivalent to apply_vol_target_overlay — uses the identical
+    loop/band logic, differing only in that it starts from ``loaded_scale``
+    (the value persisted in Postgres from the previous scheduler cycle) rather
+    than unconditionally from 1.0.  When given a window of exactly vol_window
+    bars, rolling(vol_window).std() is non-NaN only at the final element, so
+    the loop is effectively a single-bar incremental update — correct and cheap.
+
+    Equivalence guarantee
+    ---------------------
+    For any weights W (T×N) and returns R (T×N), simulating this function
+    bar-by-bar (each call receives W[max(0,i-vol_window+1):i+1]) starting
+    from loaded_scale=1.0 produces scales identical to those embedded in
+    apply_vol_target_overlay(W, R) for all bars i ≥ vol_window-1.
+
+    Parameters
+    ----------
+    weights_window : (≤vol_window × N) bare weights for the recent history
+    returns_window : (≤vol_window × N) simple returns, same index
+    loaded_scale   : current_scale persisted from the previous cycle
+    target_vol/band/vol_window/max_scale : must match VOL_TARGET_PARAMS
+
+    Returns
+    -------
+    float — updated current_scale; caller must persist to Postgres state
+    """
+    from config.settings import MAX_POSITION_SIZE  # noqa: F401 (imported for callers)
+
+    common = weights_window.index.intersection(returns_window.index)
+    w = weights_window.reindex(common).fillna(0.0)
+    r = returns_window.reindex(common).fillna(0.0)
+
+    port_ret     = (w * r).sum(axis=1)
+    realized_vol = port_ret.rolling(vol_window).std() * np.sqrt(365)
+
+    low_trigger  = target_vol * (1 - band)
+    high_trigger = target_vol * (1 + band)
+
+    current_scale = loaded_scale
+    for i in range(len(common)):
+        rv = realized_vol.iloc[i]
+        if pd.isna(rv) or rv <= 0.0:
+            continue
+        if rv < low_trigger or rv > high_trigger:
+            current_scale = min(target_vol / rv, max_scale)
+
+    return current_scale
+
+
 def compute_portfolio_vol(weights: dict, cov: pd.DataFrame) -> float:
     """Compute annualized portfolio volatility from weights and covariance."""
     w = pd.Series(weights).reindex(cov.index, fill_value=0).values
