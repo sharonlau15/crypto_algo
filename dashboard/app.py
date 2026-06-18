@@ -15,6 +15,7 @@ from datetime import datetime
 
 import dash
 import dash_bootstrap_components as dbc
+import pandas as pd
 import plotly.graph_objects as go
 from dash import Input, Output, State, callback_context, dash_table, dcc, html
 
