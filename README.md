@@ -13,12 +13,12 @@ Multi-strategy algorithmic trading on Binance — backtest, live futures executi
 4. [Setup & Installation](#4-setup--installation)
 5. [API Keys & Environment](#5-api-keys--environment)
 6. [Running the System](#6-running-the-system)
-7. [The 10 Alpha Strategies](#7-the-10-alpha-strategies)
+7. [The 16 Alpha Strategies](#7-the-16-alpha-strategies)
 8. [How Signals Become Orders](#8-how-signals-become-orders)
 9. [Backtest Engine](#9-backtest-engine)
 10. [Portfolio Optimizer](#10-portfolio-optimizer)
-11. [Seasonality & Regime Selector](#11-seasonality--regime-selector)
-12. [Live Feedback Loop](#12-live-feedback-loop)
+11. [Research Gate & Strategy Evaluation](#11-research-gate--strategy-evaluation)
+12. [Hypothetical Paper Portfolios](#12-hypothetical-paper-portfolios)
 13. [Live Engine — Two Loops](#13-live-engine--two-loops)
 14. [Risk Controls](#14-risk-controls)
 15. [NAV & P&L Accounting](#15-nav--pl-accounting)
@@ -34,21 +34,24 @@ Multi-strategy algorithmic trading on Binance — backtest, live futures executi
 
 ## 1. System Overview
 
-This system runs **10 independent alpha strategies** simultaneously. Each strategy produces a signal matrix (conviction in `[-1, +1]` per token per day). A meta-layer called the **Seasonality/Regime Selector** picks the 1–2 best-performing strategies for the current market regime and blends their signals. The blended signal drives a **Max-Sharpe portfolio optimizer** that outputs target weights. A live engine translates weight changes into real Binance Futures Demo orders — including real short positions.
+**16 alpha strategies** are implemented and evaluated through a strict out-of-sample research gate. Exactly **one strategy passed** — 12-1 momentum with a banded vol-targeting overlay (`momentum_vt`) — and it alone is deployed in live trading. The live engine trades only that strategy; the Max-Sharpe optimizer is backtest-only and never runs in the live path.
 
-In parallel, all 10 strategies run as **hypothetical paper portfolios** whose live P&L feeds back into the strategy selector — so the system learns which strategies are working *right now* and tilts toward them automatically.
+All 16 strategies continue to run as hypothetical paper portfolios for ongoing research evaluation, but their live performance does **not** influence which strategy is active — the live book is fixed to whatever has cleared the OOS gate.
 
 ```
-Market Data → 10 Strategies → Signals → Selector (Regime + Live P&L) → Optimizer → Orders
-                                ↑                                         |
-                                └────── Hypothetical P&L feedback ────────┘
+Market Data → 16 Strategies → Backtest → OOS Gate → 1 strategy passes → Live Engine → Orders
+                   │
+                   └── Hypothetical paper portfolios (research evaluation only, not live selection)
 ```
 
 **Key design decisions:**
+- **OOS gate before live** — a strategy must clear gross OOS Sharpe > 0.5, net OOS Sharpe > 0, and turnover < 1000% before it can enter `LIVE_BOOK_STRATEGIES`; currently only `momentum_vt` passes
 - **Futures Demo Trading** — `PAPER_TRADING = True` is hardcoded as the default; virtual funds on `testnet.binancefuture.com`, real market prices
 - **Long and short** — futures perpetuals allow real short positions; live engine uses `long_short=True`
 - **Signal-driven, not clock-driven** — orders only fire when signal weight delta exceeds `REBALANCE_THRESHOLD`
-- **Zero look-ahead** — signals are shifted 1 day before entering the optimizer; ML model trained on strictly past data
+- **VT overlay in live path** — bare momentum weights are scaled by a banded vol-target overlay (target 15%, ±20% band) matching the backtest overlay exactly; scale persisted in PostgreSQL across restarts
+- **Optimizer is backtest-only** — the live weight path uses proportional sizing + `MAX_POSITION_SIZE` cap, never the Max-Sharpe SLSQP optimizer; `MIN_ANNUALIZED_VOL` is inert live
+- **Zero look-ahead** — signals are shifted 1 day before weights are computed; ML model trained on strictly past data
 - **Binance-authoritative balances** — wallet balance and positions reconciled from Binance Futures every cycle; `initial_nav` stamped once from the real account equity on first run
 
 ---
@@ -141,7 +144,7 @@ crypto_algo/
 │
 ├── strategies/
 │   ├── base.py                    ← BaseStrategy abstract class
-│   └── alpha.py                   ← All 10 strategies
+│   └── alpha.py                   ← All 16 strategies
 │
 ├── backtest/
 │   └── engine.py                  ← Walk-forward backtester (T+1/T+2)
@@ -287,19 +290,22 @@ python3 dashboard/app.py
 ### What `--mode full` does step by step:
 1. Fetches OHLCV data for all 12 tokens (from cache if fresh)
 2. Fetches funding rates and Fear & Greed index
-3. Generates signals for all 10 strategies
+3. Generates signals for all 16 strategies
 4. Runs walk-forward backtest for each strategy (IS and OOS split)
-5. Computes regime + monthly seasonality scores
-6. Runs factor attribution
-7. Saves all results to `results/`
-8. Sets leverage for all universe symbols via Binance Futures API
-9. Starts the APScheduler live engine (blocking — keeps running until Ctrl+C)
+5. Applies VT overlay to momentum and reports `momentum_vt` gate result
+6. Computes regime + monthly seasonality scores (backtest diagnostics)
+7. Runs factor attribution
+8. Saves all results to `results/`
+9. Sets leverage for all universe symbols via Binance Futures API
+10. Starts the APScheduler live engine (blocking — keeps running until Ctrl+C)
 
 ---
 
-## 7. The 10 Alpha Strategies
+## 7. The 16 Alpha Strategies
 
 All strategies live in `strategies/alpha.py` and inherit from `BaseStrategy`. Each outputs a signal DataFrame of shape `(dates × tokens)` with values in `[-1, +1]`.
+
+**Live status:** Only `momentum_vt` (Strategy 1 with the VT overlay) is in `LIVE_BOOK_STRATEGIES`. The remaining 15 run as hypothetical paper portfolios for ongoing research evaluation. A strategy can be promoted to live only by clearing the OOS gate (see Section 11).
 
 - `+1.0` = maximum bullish conviction (long)
 - `-1.0` = maximum bearish conviction (short)
@@ -447,33 +453,30 @@ All strategies live in `strategies/alpha.py` and inherit from `BaseStrategy`. Ea
 
 ## 8. How Signals Become Orders
 
-This is the full pipeline from a strategy's output to an actual Binance Futures order.
+This is the full live pipeline from momentum signal to a Binance Futures order.
 
 ### Step 1 — Signal generation
-Each strategy outputs a float in `[-1, +1]` per token. This is conviction strength — not just direction.
+`momentum` strategy outputs a float in `[-1, +1]` per token from its 12-1 month lookback. Binary ±1 (top-4 long, bottom-4 short, others zero).
 
-### Step 2 — Strategy blending (`seasonality/analyzer.py → blend_signals`)
-The top-2 strategies selected by the regime/seasonality selector are blended with proportional weights:
-```
-blended_signal = Σ (strategy_weight × strategy_signal) / total_weight
-```
-The blended signal is clipped to `[-1, +1]`.
-
-### Step 3 — Weight conversion (`_signal_to_weights`)
+### Step 2 — Weight conversion (`_signal_to_weights`)
 Signals are converted to portfolio weights with `long_short=True` (futures supports real shorts):
-- Top 6 positive signals → long positions (weights > 0)
-- Top 6 negative signals → short positions (weights < 0)
+- Top `MAX_LIVE_POSITIONS=6` positive signals → long positions (weights > 0)
+- Top `MAX_LIVE_POSITIONS=6` negative signals → short positions (weights < 0)
 - Long and short each get up to 50% of gross exposure when both sides are present
-- Any token exceeding `MAX_POSITION_SIZE = 20%` is capped; the excess is redistributed
+- Any token exceeding `MAX_POSITION_SIZE = 20%` is capped iteratively; excess redistributed
 
 Example:
 ```
-Signals:  BTC=0.8, SOL=0.4, ETH=-0.6
-Long budget: 50% → BTC: 33%, SOL: 17%
-Short budget: 50% → ETH: -50% (capped at -20%, excess redistributed)
+Signals:  BTC=1.0, SOL=1.0, ETH=-1.0, ADA=-1.0
+Long budget: 50% → BTC: 25%, SOL: 25%
+Short budget: 50% → ETH: -25%, ADA: -25%
 ```
 
+### Step 3 — Vol-target overlay (`compute_live_vt_scale`)
+The bare weights are scaled by a single scalar so realized 63-day portfolio vol stays near 15% (±20% band). The scalar is capped at 2× and persisted in PostgreSQL across cycles. This step is mathematically equivalent to the backtest's `overlay_backtest_result()` — proven in `tests/test_vt_equivalence.py`.
+
 ### Step 4 — Price fetch (live futures ticker)
+The optimizer is **not** called. `MIN_ANNUALIZED_VOL` is inert in the live path.
 ```python
 client.futures_symbol_ticker()  # returns live mark prices for all symbols
 ```
@@ -578,84 +581,54 @@ Max-Sharpe optimization using `scipy.optimize.minimize` with the SLSQP method. S
 
 **Fallback:** If SLSQP fails to converge, equal-weight among tokens with positive signals. The engine never goes fully flat due to optimizer failure.
 
----
-
-## 11. Seasonality & Regime Selector
-
-**File:** `seasonality/analyzer.py`
-
-### Layer 1 — Market Regime Classification
-BTC's 200-day MA + 30-day realized volatility determine the current regime:
-
-| Condition | Regime |
-|-----------|--------|
-| BTC > 200-day MA AND vol < 75th percentile | `bull` |
-| BTC < 200-day MA AND vol < 75th percentile | `bear` |
-| vol > 75th percentile (regardless of price) | `sideways` |
-
-### Layer 2 — Regime Performance Score
-For each strategy × regime combination, compute the annualized Sharpe ratio from backtest returns. Only periods with ≥24 observations count (configurable via `SEASONALITY_MIN_PERIODS`).
-
-### Layer 3 — Monthly Seasonality Score
-For each strategy, compute the average monthly Sharpe across the backtest period. This captures calendar patterns (e.g., momentum works better in January, mean reversion in August).
-
-### Layer 4 — Combined Backtest Score
-```
-combined_score = 0.70 × regime_sharpe + 0.30 × monthly_sharpe
-```
-
-### Layer 5 — Live Feedback Score (the adaptive layer)
-As the live engine runs, each strategy maintains a **hypothetical paper portfolio** updated every minute. The selector blends in the live rolling Sharpe:
-
-```
-final_score = (1 - live_weight) × backtest_score + live_weight × live_sharpe_normalized
-```
-
-`live_weight` ramps from 0% → 80% over the first 2 days:
-```python
-live_weight = min(days_live / 2, 0.80)
-```
-
-**Why 2 days / 80%?** Crypto regimes change fast. A 14-day ramp (like traditional equity quant systems) is too slow. The 2-day window captures the current momentum while the 20% backtest floor prevents over-fitting to a single day's lucky noise.
-
-**Why not 100% live?** Sharpe computed over 48 hours is noisy. A strategy that happens to be up 2% in the first 12 hours shouldn't completely displace a strategy with a superior 2-year backtest.
-
-### Selection output
-Top-2 strategies by final score, with blend weights proportional to their scores:
-```
-[("momentum", 0.6), ("cross_sectional_momentum", 0.4)]
-```
+**Live path:** The optimizer is **backtest-only**. `compute_target_weights()` in the live engine uses proportional sizing + `MAX_POSITION_SIZE` cap, not SLSQP. `MIN_ANNUALIZED_VOL = 0.03` is enforced only inside the optimizer and is therefore inert during live trading.
 
 ---
 
-## 12. Live Feedback Loop
+## 11. Research Gate & Strategy Evaluation
 
-### How all 10 strategies run simultaneously
-Every time `signal_rebalance_job` fires (every 1 minute), it:
-1. Fetches the latest prices
-2. Updates a **hypothetical paper portfolio** for each of the 10 strategies
-3. Each hypothetical tracks: NAV, weights, last prices, trade history, entry prices
+**File:** `seasonality/analyzer.py`, `backtest/engine.py`
 
-### Hypothetical NAV update
+All 16 strategies are evaluated through a strict three-criterion out-of-sample gate before any strategy may enter `LIVE_BOOK_STRATEGIES`. A strategy must clear **all three** simultaneously:
+
+| Criterion | Threshold | Rationale |
+|-----------|-----------|-----------|
+| Gross OOS Sharpe | > 0.5 | Signal must be economically meaningful before costs |
+| Net OOS Sharpe | > 0.0 | Must be profitable after 10 bp round-trip + 15 bp slippage |
+| Annual turnover | < 1000% | Prevents high-churn strategies whose costs dominate |
+
+The OOS period is `BACKTEST_TEST_START = 2025-01-01` → today — data the strategies never saw during development.
+
+**Gate result (as of current backtest):** One strategy passed — `momentum_vt` (12-1 momentum with VT overlay). All others failed on at least one criterion, most commonly net OOS Sharpe ≤ 0.
+
+The gate result is printed by `main.py` at the end of each backtest run and shown in the dashboard's Backtest Analysis tab OOS gate table. Promotion to live is manual — clearing the gate flags a strategy as eligible but does not automatically add it to `LIVE_BOOK_STRATEGIES`.
+
+### Regime and seasonality diagnostics (backtest reporting only)
+`seasonality/analyzer.py` computes per-strategy regime-conditional Sharpe (bull/bear/sideways based on BTC 200-day MA + realized vol percentile) and monthly seasonality scores. These are **backtest diagnostics** — they appear in the dashboard's regime and seasonality heatmaps and inform when a strategy's edge is likely to be present, but they do not influence which strategy is active in the live engine.
+
+---
+
+## 12. Hypothetical Paper Portfolios
+
+Every `signal_rebalance_job` cycle, all 16 strategies run as independent hypothetical paper portfolios. These are **research instruments**, not live-selection inputs.
+
+### Purpose
+- Provide forward-looking OOS performance data to re-evaluate the gate periodically
+- Detect if a non-live strategy has started consistently outperforming (human review trigger)
+- Feed the dashboard's Strategy Competition panel for visibility
+
+### NAV update (each cycle)
 ```python
 period_return = Σ prev_weight[sym] × (price_now - price_prev) / price_prev
-new_nav = prev_nav × (1 + period_return)
+new_nav       = prev_nav × (1 + period_return)
 ```
+Shorts are modeled correctly: negative weights produce negative returns when prices rise.
 
-Shorts are modeled correctly: negative weights produce negative returns when prices rise (good for shorts when market falls).
+### Storage
+Persisted in `hypothetical_nav` and `hypothetical_strategy_state` Postgres tables. NAV history loaded up to 2880 rows per strategy; trade history up to 500 rows. Weights and prices are checkpointed so NAV continuity survives engine restarts.
 
-### Rolling Sharpe computation (48h window)
-```python
-recent_navs = nav_history[last_48h]
-returns = recent_navs.pct_change().dropna()
-rolling_sharpe = returns.mean() / returns.std()
-```
-
-### When a strategy "takes over"
-If a strategy's live rolling Sharpe is significantly better than the backtest-selected strategies, `live_weight` (capped at 80%) shifts the blend. Over 2 days, the live score dominates and the system effectively switches to the better-performing strategy.
-
-### NAV history cap
-Nav history is capped at 2880 entries (2 days × 1440 minutes) to prevent the state file from growing unboundedly. Hypothetical trade history is capped at 500 entries per strategy.
+### What they do NOT do
+Paper portfolio results do **not** change which strategy is active. `LIVE_BOOK_STRATEGIES` is a static config value updated only after manual review of the research gate.
 
 ---
 
@@ -681,15 +654,14 @@ Also prints a heartbeat log every 30 seconds showing NAV, wallet balance, and pe
 
 Steps:
 1. Fetch latest OHLCV data (no cache — always fresh)
-2. Recompute signals for all 10 strategies
+2. Recompute signals for all 16 strategies
 3. Snapshot latest signals to state (dashboard reads these)
 4. Fetch current futures prices
 5. **Reconcile with Binance Futures** — sync positions (signed qty), wallet balance, stamp `initial_nav` on first cycle
-6. Update all 10 hypothetical paper portfolios
-7. Select active strategies (regime + live P&L)
-8. Compute new target weights for live portfolio (long and short)
-9. Compare new weights to actual current positions
-10. If `Σ|Δweight| > REBALANCE_THRESHOLD (3%)` → execute futures orders; else skip
+6. Update all 16 hypothetical paper portfolios (research evaluation, not live selection)
+7. Compute new target weights for live portfolio (`LIVE_BOOK_STRATEGIES = ["momentum"]`): signal → proportional weights → VT overlay → clip
+8. Compare new weights to actual current positions
+9. If `Σ|Δweight| > REBALANCE_THRESHOLD (15%)` → execute futures orders; else skip
 
 ### Why signal-driven (not clock-driven)?
 If BTC surges 10% at 3am, the system rebalances within 1 minute regardless of schedule. If the market is flat, no unnecessary trading occurs even when the scheduler fires.
@@ -1090,7 +1062,7 @@ screen -r dashboard
 
 ### Q: The system hasn't traded in 3+ days — why is it just holding?
 **A:** Two possible causes:
-1. `REBALANCE_THRESHOLD = 3%` — if the blended signal hasn't changed by at least 3% total weight, no orders fire. This is intentional to avoid churn.
+1. `REBALANCE_THRESHOLD = 15%` — momentum signals are binary ±1 and change only when a token crosses rank boundaries. If the signal hasn't changed by at least 15% total weight, no orders fire. This is intentional — momentum is a slow-moving signal.
 2. The delta comparison uses actual live positions (from Binance reconciliation) vs new target. If your positions already match the target, delta will be near zero.
 
 ### Q: How do I know which strategy is currently active?
@@ -1118,7 +1090,7 @@ screen -r dashboard
 **A:** The backtest is realistic by design:
 - T+1 execution lag (signals computed day T, orders placed day T+1)
 - 10 bps round-trip transaction costs
-- 5 bps slippage assumption
+- 15 bps slippage assumption (realistic for thinner alts; total cost 25 bps)
 - 180-day rolling covariance (not full-history, which would look-ahead in practice)
 - ML strategy uses strict walk-forward retraining every 30 days with no target leakage
 - In-sample / out-of-sample split at 2025-01-01 for honest evaluation
@@ -1142,7 +1114,8 @@ Known limitations: daily bars mean intraday price impact is not modeled; funding
 2. Implement `generate_signals(self, close, returns, **kwargs) → pd.DataFrame`
 3. Add parameters to `STRATEGY_PARAMS` in `config/settings.py`
 4. Add the class to `get_all_strategies()` at the bottom of `alpha.py`
-5. The strategy automatically gets added to the backtest, hypothetical competition, and dashboard
+5. The strategy automatically enters the backtest and hypothetical paper portfolio competition
+6. To promote to live: re-run backtest, confirm it clears the OOS gate (gross Sharpe > 0.5, net Sharpe > 0, turnover < 1000%), then manually add it to `LIVE_BOOK_STRATEGIES` in `config/settings.py`
 
 ### Q: How do I change the leverage?
 **A:** Change `FUTURES_LEVERAGE = 1` in `config/settings.py`. The engine calls `futures_change_leverage()` for all 12 symbols at startup. Keep in mind that leverage above 1x amplifies both gains and losses and tightens effective stop-loss distances.
