@@ -13,7 +13,7 @@ Multi-strategy algorithmic trading on Binance — backtest, live futures executi
 4. [Setup & Installation](#4-setup--installation)
 5. [API Keys & Environment](#5-api-keys--environment)
 6. [Running the System](#6-running-the-system)
-7. [The 15 Alpha Strategies](#7-the-15-alpha-strategies)
+7. [The 14 Alpha Strategies](#7-the-14-alpha-strategies)
 8. [How Signals Become Orders](#8-how-signals-become-orders)
 9. [Backtest Engine](#9-backtest-engine)
 10. [Portfolio Optimizer](#10-portfolio-optimizer)
@@ -34,12 +34,12 @@ Multi-strategy algorithmic trading on Binance — backtest, live futures executi
 
 ## 1. System Overview
 
-**15 alpha strategies** are implemented and evaluated through a strict out-of-sample research gate. Exactly **one strategy passed** — 12-1 momentum with a banded vol-targeting overlay (`momentum_vt`) — and it alone is deployed in live trading. The live engine trades only that strategy; the Max-Sharpe optimizer is backtest-only and never runs in the live path.
+**14 alpha strategies** are registered in the strategy factory (`get_all_strategies()`) and evaluated through a strict out-of-sample research gate. Exactly **one strategy passed** — 12-1 momentum (`momentum`) with a banded vol-targeting overlay applied live — and it alone is deployed in live trading. The Max-Sharpe optimizer is backtest-only and never runs in the live path. (`momentum_vt` is the backtest label for this overlaid result; the live engine and trade log identify the strategy as `"momentum"`.)
 
-All 15 strategies continue to run as hypothetical paper portfolios for ongoing research evaluation, but their live performance does **not** influence which strategy is active — the live book is fixed to whatever has cleared the OOS gate.
+All 14 factory strategies run as hypothetical paper portfolios for ongoing research evaluation, but their live performance does **not** influence which strategy is active — the live book is fixed to whatever has cleared the OOS gate.
 
 ```
-Market Data → 15 Strategies → Backtest → OOS Gate → 1 strategy passes → Live Engine → Orders
+Market Data → 14 Factory Strategies → Backtest → OOS Gate → 1 strategy passes → Live Engine → Orders
                    │
                    └── Hypothetical paper portfolios (research evaluation only, not live selection)
 ```
@@ -144,7 +144,7 @@ crypto_algo/
 │
 ├── strategies/
 │   ├── base.py                    ← BaseStrategy abstract class
-│   └── alpha.py                   ← All 15 strategies
+│   └── alpha.py                   ← 14 factory strategies + vol_breakout (excluded)
 │
 ├── backtest/
 │   └── engine.py                  ← Walk-forward backtester (T+1/T+2)
@@ -290,7 +290,7 @@ python3 dashboard/app.py
 ### What `--mode full` does step by step:
 1. Fetches OHLCV data for all 12 tokens (from cache if fresh)
 2. Fetches funding rates and Fear & Greed index
-3. Generates signals for all 15 strategies
+3. Generates signals for all 14 strategies
 4. Runs walk-forward backtest for each strategy (IS and OOS split)
 5. Applies VT overlay to momentum and reports `momentum_vt` gate result
 6. Computes regime + monthly seasonality scores (backtest diagnostics)
@@ -301,11 +301,11 @@ python3 dashboard/app.py
 
 ---
 
-## 7. The 15 Alpha Strategies
+## 7. The 14 Alpha Strategies
 
-All strategies live in `strategies/alpha.py` and inherit from `BaseStrategy`. Each outputs a signal DataFrame of shape `(dates × tokens)` with values in `[-1, +1]`.
+All 14 strategies live in `strategies/alpha.py` and inherit from `BaseStrategy`. Each outputs a signal DataFrame of shape `(dates × tokens)` with values in `[-1, +1]`. A 15th class (`vol_breakout`) is coded but excluded from the factory (OOS win-rate 30.5%). `momentum_vt` is not a class — it is the VT-overlaid result of Strategy 1, tracked separately in backtest output (see note below Strategy 1).
 
-**Live status:** Only `momentum_vt` (Strategy 1 with the VT overlay, Strategy 15 below) is in `LIVE_BOOK_STRATEGIES`. The remaining 14 run as hypothetical paper portfolios for ongoing research evaluation. A strategy can be promoted to live only by clearing the OOS gate (see Section 11).
+**Live status:** `LIVE_BOOK_STRATEGIES = ["momentum"]`. The live engine applies the vol-target overlay to momentum's raw weights on every cycle (via `compute_live_vt_scale`). The engine and trade log label this `"momentum"`; the backtest records the overlay result separately as `"momentum_vt"`. All 14 factory strategies run as hypothetical paper portfolios. A strategy can be promoted to live only by clearing the OOS gate (see Section 11).
 
 - `+1.0` = maximum bullish conviction (long)
 - `-1.0` = maximum bearish conviction (short)
@@ -323,6 +323,8 @@ All strategies live in `strategies/alpha.py` and inherit from `BaseStrategy`. Ea
 - `bottom_n = 4` — short bottom 4 tokens
 
 **Signal type:** Binary ±1 (not continuous)
+
+**Live overlay (not a separate strategy):** Raw weights are scaled by a single vol-target scalar so realized portfolio vol stays near 15% (±20% band). The scalar is persisted in Postgres across cycles via `compute_live_vt_scale`. The backtest pipeline records both the unscaled curve (`momentum`) and the overlaid curve (`momentum_vt`); the OOS gate is evaluated on `momentum_vt` because that is what the live engine actually trades. The live engine itself labels everything `"momentum"`.
 
 ---
 
@@ -459,9 +461,9 @@ All strategies live in `strategies/alpha.py` and inherit from `BaseStrategy`. Ea
 
 ---
 
-### Research Candidates (Strategies 11–14)
+### Research Candidates (Strategies 11–15)
 
-The following four strategies are coded and run as paper portfolios but have not cleared the OOS research gate. They are tagged `# RESEARCH CANDIDATES` in `alpha.py`.
+The following five strategies are coded and run as paper portfolios but have not cleared the OOS research gate. They are tagged `# RESEARCH CANDIDATES` in `alpha.py`.
 
 #### R1 — Vol-Scaled TSMOM (`tsmom_volscaled`)
 Sign of the 12-month trailing return divided by each token's own 3-month realized vol. Low-vol tokens receive larger allocations. Differs from Strategy 1 in that sizing is continuous and vol-driven rather than binary rank-based. Cross-sectionally normalized to `[-1, +1]` per bar.
@@ -480,12 +482,9 @@ Fades extreme single-day moves (|return| > `spike_mult × ATR`) when perpetual f
 
 ---
 
-### Strategy 15 — Momentum VT (`momentum_vt`) — Live
-**What it is:** A synthetic overlay result, not a standalone strategy class. Created by the backtest pipeline (`overlay_backtest_result`) by applying the vol-target overlay (`apply_vol_target_overlay`) to the raw `momentum` signals.
+### Note on `momentum_vt` in backtest results
 
-**Why it exists separately:** The backtest tracks both the un-overlaid `momentum` equity curve and the VT-overlaid `momentum_vt` curve. The OOS gate is evaluated on `momentum_vt` (not raw momentum) because the live engine applies the VT scale. This ensures backtest and live metrics are directly comparable.
-
-**Live implementation:** `compute_live_vt_scale` in `portfolio/optimizer.py` — mathematically equivalent to the batch overlay, starting from a Postgres-persisted band state. Proven equivalent in `tests/test_vt_equivalence.py`.
+`momentum_vt` is **not a strategy class and not a registry member**. It is the VT-overlaid result of Strategy 1, produced by the backtest pipeline after the fact. The backtest records two rows for momentum: `momentum` (raw unscaled equity curve) and `momentum_vt` (same signals, weights scaled by `apply_vol_target_overlay`). The OOS gate is evaluated on the `momentum_vt` row because that is the curve that matches what the live engine executes. The live engine applies the identical overlay via `compute_live_vt_scale` (Postgres-persisted, mathematically equivalent — proven in `tests/test_vt_equivalence.py`) but identifies the strategy as `"momentum"` in state, trade log, and dashboard.
 
 ---
 
@@ -627,7 +626,7 @@ Max-Sharpe optimization using `scipy.optimize.minimize` with the SLSQP method. S
 
 **File:** `seasonality/analyzer.py`, `backtest/engine.py`
 
-All 15 strategies are evaluated through a strict three-criterion out-of-sample gate before any strategy may enter `LIVE_BOOK_STRATEGIES`. A strategy must clear **all three** simultaneously:
+All 14 factory strategies are evaluated through a strict three-criterion out-of-sample gate before any strategy may enter `LIVE_BOOK_STRATEGIES`. A strategy must clear **all three** simultaneously:
 
 | Criterion | Threshold | Rationale |
 |-----------|-----------|-----------|
@@ -648,7 +647,7 @@ The gate result is printed by `main.py` at the end of each backtest run and show
 
 ## 12. Hypothetical Paper Portfolios
 
-Every `signal_rebalance_job` cycle, all 15 strategies run as independent hypothetical paper portfolios. These are **research instruments**, not live-selection inputs.
+Every `signal_rebalance_job` cycle, all 14 factory strategies run as independent hypothetical paper portfolios. These are **research instruments**, not live-selection inputs.
 
 ### Purpose
 - Provide forward-looking OOS performance data to re-evaluate the gate periodically
@@ -692,11 +691,11 @@ Also prints a heartbeat log every 30 seconds showing NAV, wallet balance, and pe
 
 Steps:
 1. Fetch latest OHLCV data (no cache — always fresh)
-2. Recompute signals for all 15 strategies
+2. Recompute signals for all 14 strategies
 3. Snapshot latest signals to state (dashboard reads these)
 4. Fetch current futures prices
 5. **Reconcile with Binance Futures** — sync positions (signed qty), wallet balance, stamp `initial_nav` on first cycle
-6. Update all 15 hypothetical paper portfolios (research evaluation, not live selection)
+6. Update all 14 hypothetical paper portfolios (research evaluation, not live selection)
 7. Compute new target weights for live portfolio (`LIVE_BOOK_STRATEGIES = ["momentum"]`): signal → proportional weights → VT overlay → clip
 8. Compare new weights to actual current positions
 9. If `Σ|Δweight| > REBALANCE_THRESHOLD (15%)` → execute futures orders; else skip
