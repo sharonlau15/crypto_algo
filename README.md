@@ -13,7 +13,7 @@ Multi-strategy algorithmic trading on Binance — backtest, live futures executi
 4. [Setup & Installation](#4-setup--installation)
 5. [API Keys & Environment](#5-api-keys--environment)
 6. [Running the System](#6-running-the-system)
-7. [The 16 Alpha Strategies](#7-the-16-alpha-strategies)
+7. [The 15 Alpha Strategies](#7-the-15-alpha-strategies)
 8. [How Signals Become Orders](#8-how-signals-become-orders)
 9. [Backtest Engine](#9-backtest-engine)
 10. [Portfolio Optimizer](#10-portfolio-optimizer)
@@ -34,12 +34,12 @@ Multi-strategy algorithmic trading on Binance — backtest, live futures executi
 
 ## 1. System Overview
 
-**16 alpha strategies** are implemented and evaluated through a strict out-of-sample research gate. Exactly **one strategy passed** — 12-1 momentum with a banded vol-targeting overlay (`momentum_vt`) — and it alone is deployed in live trading. The live engine trades only that strategy; the Max-Sharpe optimizer is backtest-only and never runs in the live path.
+**15 alpha strategies** are implemented and evaluated through a strict out-of-sample research gate. Exactly **one strategy passed** — 12-1 momentum with a banded vol-targeting overlay (`momentum_vt`) — and it alone is deployed in live trading. The live engine trades only that strategy; the Max-Sharpe optimizer is backtest-only and never runs in the live path.
 
-All 16 strategies continue to run as hypothetical paper portfolios for ongoing research evaluation, but their live performance does **not** influence which strategy is active — the live book is fixed to whatever has cleared the OOS gate.
+All 15 strategies continue to run as hypothetical paper portfolios for ongoing research evaluation, but their live performance does **not** influence which strategy is active — the live book is fixed to whatever has cleared the OOS gate.
 
 ```
-Market Data → 16 Strategies → Backtest → OOS Gate → 1 strategy passes → Live Engine → Orders
+Market Data → 15 Strategies → Backtest → OOS Gate → 1 strategy passes → Live Engine → Orders
                    │
                    └── Hypothetical paper portfolios (research evaluation only, not live selection)
 ```
@@ -144,7 +144,7 @@ crypto_algo/
 │
 ├── strategies/
 │   ├── base.py                    ← BaseStrategy abstract class
-│   └── alpha.py                   ← All 16 strategies
+│   └── alpha.py                   ← All 15 strategies
 │
 ├── backtest/
 │   └── engine.py                  ← Walk-forward backtester (T+1/T+2)
@@ -290,7 +290,7 @@ python3 dashboard/app.py
 ### What `--mode full` does step by step:
 1. Fetches OHLCV data for all 12 tokens (from cache if fresh)
 2. Fetches funding rates and Fear & Greed index
-3. Generates signals for all 16 strategies
+3. Generates signals for all 15 strategies
 4. Runs walk-forward backtest for each strategy (IS and OOS split)
 5. Applies VT overlay to momentum and reports `momentum_vt` gate result
 6. Computes regime + monthly seasonality scores (backtest diagnostics)
@@ -301,11 +301,11 @@ python3 dashboard/app.py
 
 ---
 
-## 7. The 16 Alpha Strategies
+## 7. The 15 Alpha Strategies
 
 All strategies live in `strategies/alpha.py` and inherit from `BaseStrategy`. Each outputs a signal DataFrame of shape `(dates × tokens)` with values in `[-1, +1]`.
 
-**Live status:** Only `momentum_vt` (Strategy 1 with the VT overlay) is in `LIVE_BOOK_STRATEGIES`. The remaining 15 run as hypothetical paper portfolios for ongoing research evaluation. A strategy can be promoted to live only by clearing the OOS gate (see Section 11).
+**Live status:** Only `momentum_vt` (Strategy 1 with the VT overlay, Strategy 15 below) is in `LIVE_BOOK_STRATEGIES`. The remaining 14 run as hypothetical paper portfolios for ongoing research evaluation. A strategy can be promoted to live only by clearing the OOS gate (see Section 11).
 
 - `+1.0` = maximum bullish conviction (long)
 - `-1.0` = maximum bearish conviction (short)
@@ -340,19 +340,7 @@ All strategies live in `strategies/alpha.py` and inherit from `BaseStrategy`. Ea
 
 ---
 
-### Strategy 3 — Risk Parity (`risk_parity`)
-**What it does:** Weights tokens inversely proportional to their recent volatility so each token contributes the same amount of risk. Low-vol tokens get higher weights; high-vol tokens get lower weights. Long-only, always fully invested.
-
-**Why it works:** Diversifies risk rather than capital. Outperforms equal-weight during high cross-sectional vol dispersion because it doesn't over-concentrate in the most volatile (often trending) tokens.
-
-**Key parameters:**
-- `lookback = 63` — 3-month rolling vol window
-
-**Implementation note:** If a token has zero vol (e.g., stale/delisted like MATICUSDT post-migration), its inverse-vol would be infinite. The code handles this with `replace([inf, -inf], nan)` so the stale token is excluded rather than poisoning the entire portfolio.
-
----
-
-### Strategy 4 — Cross-Sectional Momentum (`cross_sectional_momentum`)
+### Strategy 3 — Cross-Sectional Momentum (`cross_sectional_momentum`)
 **What it does:** Ranks all 12 tokens by their 20-day return each day. The rank is rescaled to `[-1, +1]` continuously — the top-ranked token gets `+1`, the bottom gets `-1`.
 
 **Why it works:** Relative momentum within the same asset class removes the systematic market beta (you're long relative winners and short relative losers). Unlike time-series momentum, this strategy is always market-neutral in signal space.
@@ -363,7 +351,7 @@ All strategies live in `strategies/alpha.py` and inherit from `BaseStrategy`. Ea
 
 ---
 
-### Strategy 5 — Volatility Breakout (`vol_breakout`)
+### Strategy 4 — Volatility Breakout (`vol_breakout`) ⚠️ DISABLED
 **What it does:** ATR (Average True Range) channel breakout. If today's close is above yesterday's close + (ATR × multiplier), the signal is positive (long breakout). If below yesterday's close - (ATR × multiplier), it is negative (short breakdown).
 
 **Why it works:** Volatility compression followed by expansion signals the start of a new directional trend. Common in technical trading; effective in crypto where vol clustering is pronounced.
@@ -375,9 +363,11 @@ All strategies live in `strategies/alpha.py` and inherit from `BaseStrategy`. Ea
 
 **Signal formula:** `(close - prev_close) / (atr_mult × ATR)` clipped to `[-1, +1]`. Continuously graded — a large breakout gets a signal near ±1.
 
+**Status:** Excluded from `get_all_strategies()` — OOS win-rate 30.5%, below the 40% minimum threshold. Coded but not run.
+
 ---
 
-### Strategy 6 — Pairs Trading (`pairs_trading`)
+### Strategy 5 — Pairs Trading (`pairs_trading`)
 **What it does:** BTC/ETH cointegration spread trade. Estimates the hedge ratio β via OLS regression on a rolling 60-day window: `spread = log(BTC) - β × log(ETH)`. When the spread is wide (high z-score), it shorts BTC and longs ETH. When spread is narrow (low z-score), the opposite.
 
 **Why it works:** BTC and ETH share systematic crypto risk factors (macro, regulation, sentiment). Their idiosyncratic spread tends to mean-revert. The rolling OLS hedge ratio adapts to structural changes in the relationship.
@@ -392,7 +382,7 @@ All strategies live in `strategies/alpha.py` and inherit from `BaseStrategy`. Ea
 
 ---
 
-### Strategy 7 — ML Signal (`ml_signal`)
+### Strategy 6 — ML Signal (`ml_signal`)
 **What it does:** LightGBM gradient boosting classifier trained on lagged return features. Target variable = sign of next-day return (1 = up, 0 = down/flat). Trained separately for each token. Signal = predicted probability of up-move, rescaled to `[-1, +1]`.
 
 **Features used:**
@@ -412,7 +402,7 @@ All strategies live in `strategies/alpha.py` and inherit from `BaseStrategy`. Ea
 
 ---
 
-### Strategy 8 — Macro Rotation (`macro_rotation`)
+### Strategy 7 — Macro Rotation (`macro_rotation`)
 **What it does:** Uses BTC's 20-day return as a macro risk-on/risk-off indicator. If BTC's recent return is positive (risk-on), all tokens get positive signals proportional to their own recent return. If BTC is negative (risk-off), signals are suppressed or reversed.
 
 **Why it works:** BTC is the dominant systematic factor in crypto. Its trend strongly influences altcoin performance. This strategy is effectively a market-regime filter that scales exposure based on macro conditions.
@@ -424,7 +414,7 @@ All strategies live in `strategies/alpha.py` and inherit from `BaseStrategy`. Ea
 
 ---
 
-### Strategy 9 — Carry (`carry`)
+### Strategy 8 — Carry (`carry`)
 **What it does:** Uses Binance perpetual futures 8-hour funding rates as a carry signal. Tokens with consistently positive funding rates (longs paying shorts) are in demand — this is bullish. Tokens with negative funding rates are under short pressure — bearish.
 
 **Why it works:** Perpetual funding rates are the crypto equivalent of the carry factor in FX. Positive funding = market is net long, reflecting bullish sentiment. Negative funding = market is net short.
@@ -437,7 +427,7 @@ All strategies live in `strategies/alpha.py` and inherit from `BaseStrategy`. Ea
 
 ---
 
-### Strategy 10 — Sentiment (`sentiment`)
+### Strategy 9 — Sentiment (`sentiment`)
 **What it does:** Uses the Alternative.me Crypto Fear & Greed Index (0–100). When the index is above 60 (greed), the market is risk-on — all tokens get a positive signal. When below 30 (fear), it uses a contrarian long signal. Between 30–60 = neutral.
 
 **Why it works:** The Fear & Greed Index captures collective market sentiment. Extreme fear often precedes reversals (contrarian); greed during established trends can reinforce momentum.
@@ -448,6 +438,54 @@ All strategies live in `strategies/alpha.py` and inherit from `BaseStrategy`. Ea
 - `lookback = 7` — trailing average of the index
 
 **Data source:** `https://api.alternative.me/fng/` — free, no authentication required.
+
+---
+
+### Strategy 10 — Exhaustion Fade (`exhaustion_fade`)
+**What it does:** Waits for a token to overextend — confirmed by a Bollinger Band breach-then-close-back-inside pattern, extreme perpetual funding (overcrowded positioning), and a low ADX (ranging market). All three conditions must align on the same bar before a signal is issued.
+
+**Signal direction:**
+- `+1` → price closed back inside from below the lower band + negative funding (shorts overcrowded) → long the snapback
+- `-1` → price closed back inside from above the upper band + positive funding (longs overcrowded) → short the snapback
+
+**Why it works:** Three-condition confirmation filters out low-quality setups. The funding gate ensures the crowd is on the wrong side; the ADX gate ensures there is no strong trend to fight against.
+
+**Key parameters:**
+- `bb_window = 20`, `bb_std = 2.0` — Bollinger Band width
+- `adx_period = 14`, `adx_threshold = 25` — ADX ranging filter
+- `funding_threshold` — per-8hr funding extremity gate
+
+**Signal strength:** Scaled by ADX distance from threshold and funding extremity — cleaner setups receive larger allocations (0.3–1.0 range).
+
+---
+
+### Research Candidates (Strategies 11–14)
+
+The following four strategies are coded and run as paper portfolios but have not cleared the OOS research gate. They are tagged `# RESEARCH CANDIDATES` in `alpha.py`.
+
+#### R1 — Vol-Scaled TSMOM (`tsmom_volscaled`)
+Sign of the 12-month trailing return divided by each token's own 3-month realized vol. Low-vol tokens receive larger allocations. Differs from Strategy 1 in that sizing is continuous and vol-driven rather than binary rank-based. Cross-sectionally normalized to `[-1, +1]` per bar.
+
+#### R2 — Carry Neutral (`carry_neutral`)
+Dollar-neutral variant of Strategy 8. Cross-sectionally demeans funding rates (each token's funding minus the universe mean) before computing the signal. Net exposure sums to zero across the universe by construction — only relative carry is traded, not directional funding beta.
+
+#### R3 — Residual Momentum (`resid_momentum`)
+Rolling OLS strips BTC's systematic return factor from each token's daily return. Momentum signal is then computed on the BTC-factor-neutralized residuals. Captures token-specific winner/loser dynamics without the dominant BTC beta contaminating the signal.
+
+#### R4 — BTC Dominance (`btc_dominance`)
+Tracks BTC's share of total universe price-weighted market action. Rising BTC dominance → capital rotating from altcoins into BTC (risk-off): long BTC, short altcoins. Falling dominance → speculative appetite expanding: short BTC, long altcoins. Signal magnitude is the z-score of the smoothed daily dominance change.
+
+#### R5 — Vol Spike Reversion (`vol_spike_reversion`)
+Fades extreme single-day moves (|return| > `spike_mult × ATR`) when perpetual funding confirms the crowd is positioned in the same direction as the spike. Signal is held for `hold_bars` days (time stop). Intentionally a left-tail-focused strategy: low average P&L per bar but the entries are high-volatility by construction.
+
+---
+
+### Strategy 15 — Momentum VT (`momentum_vt`) — Live
+**What it is:** A synthetic overlay result, not a standalone strategy class. Created by the backtest pipeline (`overlay_backtest_result`) by applying the vol-target overlay (`apply_vol_target_overlay`) to the raw `momentum` signals.
+
+**Why it exists separately:** The backtest tracks both the un-overlaid `momentum` equity curve and the VT-overlaid `momentum_vt` curve. The OOS gate is evaluated on `momentum_vt` (not raw momentum) because the live engine applies the VT scale. This ensures backtest and live metrics are directly comparable.
+
+**Live implementation:** `compute_live_vt_scale` in `portfolio/optimizer.py` — mathematically equivalent to the batch overlay, starting from a Postgres-persisted band state. Proven equivalent in `tests/test_vt_equivalence.py`.
 
 ---
 
@@ -589,7 +627,7 @@ Max-Sharpe optimization using `scipy.optimize.minimize` with the SLSQP method. S
 
 **File:** `seasonality/analyzer.py`, `backtest/engine.py`
 
-All 16 strategies are evaluated through a strict three-criterion out-of-sample gate before any strategy may enter `LIVE_BOOK_STRATEGIES`. A strategy must clear **all three** simultaneously:
+All 15 strategies are evaluated through a strict three-criterion out-of-sample gate before any strategy may enter `LIVE_BOOK_STRATEGIES`. A strategy must clear **all three** simultaneously:
 
 | Criterion | Threshold | Rationale |
 |-----------|-----------|-----------|
@@ -610,7 +648,7 @@ The gate result is printed by `main.py` at the end of each backtest run and show
 
 ## 12. Hypothetical Paper Portfolios
 
-Every `signal_rebalance_job` cycle, all 16 strategies run as independent hypothetical paper portfolios. These are **research instruments**, not live-selection inputs.
+Every `signal_rebalance_job` cycle, all 15 strategies run as independent hypothetical paper portfolios. These are **research instruments**, not live-selection inputs.
 
 ### Purpose
 - Provide forward-looking OOS performance data to re-evaluate the gate periodically
@@ -654,11 +692,11 @@ Also prints a heartbeat log every 30 seconds showing NAV, wallet balance, and pe
 
 Steps:
 1. Fetch latest OHLCV data (no cache — always fresh)
-2. Recompute signals for all 16 strategies
+2. Recompute signals for all 15 strategies
 3. Snapshot latest signals to state (dashboard reads these)
 4. Fetch current futures prices
 5. **Reconcile with Binance Futures** — sync positions (signed qty), wallet balance, stamp `initial_nav` on first cycle
-6. Update all 16 hypothetical paper portfolios (research evaluation, not live selection)
+6. Update all 15 hypothetical paper portfolios (research evaluation, not live selection)
 7. Compute new target weights for live portfolio (`LIVE_BOOK_STRATEGIES = ["momentum"]`): signal → proportional weights → VT overlay → clip
 8. Compare new weights to actual current positions
 9. If `Σ|Δweight| > REBALANCE_THRESHOLD (15%)` → execute futures orders; else skip
