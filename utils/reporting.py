@@ -203,14 +203,17 @@ def save_results(
         try:
             cur = conn.cursor()
 
-            # Idempotent migration: add OOS columns if not present
+            # Idempotent migration: add OOS/IS columns if not present
             cur.execute("""
                 ALTER TABLE strategy_metrics
                     ADD COLUMN IF NOT EXISTS gross_sharpe_oos    NUMERIC,
                     ADD COLUMN IF NOT EXISTS net_sharpe_oos      NUMERIC,
                     ADD COLUMN IF NOT EXISTS cost_drag           NUMERIC,
                     ADD COLUMN IF NOT EXISTS annual_turnover_pct NUMERIC,
-                    ADD COLUMN IF NOT EXISTS rebalance_days      INTEGER
+                    ADD COLUMN IF NOT EXISTS rebalance_days      INTEGER,
+                    ADD COLUMN IF NOT EXISTS is_sharpe           NUMERIC,
+                    ADD COLUMN IF NOT EXISTS oos_cagr            NUMERIC,
+                    ADD COLUMN IF NOT EXISTS oos_max_drawdown    NUMERIC
             """)
             conn.commit()
 
@@ -221,6 +224,9 @@ def save_results(
                 drag     = (round(gross_sh - net_sh, 6)
                             if gross_sh is not None and net_sh is not None else None)
                 turnover = round(r.annual_turnover * 100, 2)
+                is_sh    = r.in_sample_metrics.get("sharpe")      if r.in_sample_metrics else None
+                oos_cagr = r.oos_metrics.get("cagr")              if r.oos_metrics       else None
+                oos_mdd  = r.oos_metrics.get("max_drawdown")      if r.oos_metrics       else None
 
                 cur.execute("""
                     INSERT INTO strategy_metrics
@@ -228,8 +234,9 @@ def save_results(
                          total_return, win_rate, profit_factor,
                          gross_sharpe_oos, net_sharpe_oos, cost_drag,
                          annual_turnover_pct, rebalance_days,
+                         is_sharpe, oos_cagr, oos_max_drawdown,
                          recorded_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
                     ON CONFLICT (strategy) DO UPDATE SET
                         sharpe               = EXCLUDED.sharpe,
                         sortino              = EXCLUDED.sortino,
@@ -244,6 +251,9 @@ def save_results(
                         cost_drag            = EXCLUDED.cost_drag,
                         annual_turnover_pct  = EXCLUDED.annual_turnover_pct,
                         rebalance_days       = EXCLUDED.rebalance_days,
+                        is_sharpe            = EXCLUDED.is_sharpe,
+                        oos_cagr             = EXCLUDED.oos_cagr,
+                        oos_max_drawdown     = EXCLUDED.oos_max_drawdown,
                         recorded_at          = EXCLUDED.recorded_at
                 """, (
                     name,
@@ -252,6 +262,7 @@ def save_results(
                     m.get("max_drawdown"), m.get("total_return"),
                     m.get("win_rate"),     m.get("profit_factor"),
                     gross_sh, net_sh, drag, turnover, r.rebalance_count,
+                    is_sh, oos_cagr, oos_mdd,
                 ))
             conn.commit()
             logger.success("Strategy metrics (full + OOS) written to PostgreSQL")

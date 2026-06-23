@@ -449,7 +449,9 @@ def _tab_backtest_results() -> dbc.Container:
         "max_drawdown", "total_return", "win_rate", "profit_factor",
     ]
     oos_cols = [
-        "strategy", "gross_sharpe_oos", "net_sharpe_oos", "cost_drag",
+        "strategy", "is_sharpe",
+        "gross_sharpe_oos", "net_sharpe_oos", "cost_drag",
+        "oos_cagr", "oos_max_drawdown",
         "annual_turnover_pct", "rebalance_days", "gate",
     ]
     return dbc.Container([
@@ -466,9 +468,12 @@ def _tab_backtest_results() -> dbc.Container:
                         id="oos-gate-table",
                         columns=[
                             {"name": "Strategy",          "id": "strategy"},
+                            {"name": "IS Sharpe",         "id": "is_sharpe"},
                             {"name": "Gross OOS Sharpe",  "id": "gross_sharpe_oos"},
                             {"name": "Net OOS Sharpe",    "id": "net_sharpe_oos"},
                             {"name": "Cost Drag",         "id": "cost_drag"},
+                            {"name": "OOS CAGR",          "id": "oos_cagr"},
+                            {"name": "OOS Max DD",        "id": "oos_max_drawdown"},
                             {"name": "Turnover %",        "id": "annual_turnover_pct"},
                             {"name": "Rebal Days",        "id": "rebalance_days"},
                             {"name": "Gate",              "id": "gate"},
@@ -944,9 +949,11 @@ def update_backtest_tab(n_intervals):
     )
     if oos_cols_present:
         g = RESEARCH_GATE
+        extra = [c for c in ["is_sharpe", "oos_cagr", "oos_max_drawdown"]
+                 if c in metrics_df.columns]
         oos = metrics_df[
             ["strategy", "gross_sharpe_oos", "net_sharpe_oos",
-             "cost_drag", "annual_turnover_pct", "rebalance_days"]
+             "cost_drag", "annual_turnover_pct", "rebalance_days"] + extra
         ].copy()
         oos["gate"] = oos.apply(
             lambda r: "PASS" if (

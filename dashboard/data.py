@@ -196,6 +196,7 @@ def get_strategy_metrics() -> pd.DataFrame:
     oos_cols = [
         "gross_sharpe_oos", "net_sharpe_oos", "cost_drag",
         "annual_turnover_pct", "rebalance_days",
+        "is_sharpe", "oos_cagr", "oos_max_drawdown",
     ]
     all_cols = base_cols + oos_cols
     try:
