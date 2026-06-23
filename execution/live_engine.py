@@ -655,10 +655,10 @@ def compute_target_weights(
     return scaled, selection, vt_scale
 
 
-# ── Hypothetical paper portfolios (all 10 strategies simultaneously) ───────────
+# ── Hypothetical paper portfolios (all 14 strategies simultaneously) ───────────
 def update_hypotheticals(signals_dict: dict, current_prices: dict, state: dict):
     """
-    Track all 10 strategies as independent $10k paper portfolios.
+    Track all 14 strategies as independent $10k paper portfolios.
     Each strategy computes its own signal-proportional weights independently.
     Period return = sum(prev_weight_i * price_return_i) applied to prev NAV.
     """
@@ -998,7 +998,7 @@ def signal_rebalance_job(strategies: list, seasonality_analyzer, signals_dict: d
     #     and stamps initial_nav from the real account balance if not yet set.
     state = reconcile_with_binance(state, prices)
 
-    # 5. Update hypothetical paper portfolios for all 10 strategies
+    # 5. Update hypothetical paper portfolios for all 14 strategies
     logger.info("─" * 55)
     logger.info("Updating hypothetical paper portfolios...")
     update_hypotheticals(signals_dict, prices, state)

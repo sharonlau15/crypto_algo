@@ -1,7 +1,7 @@
 """
 strategies/alpha.py
 ===================
-10 core strategies + 5 research candidates.
+9 core active strategies (vol_breakout excluded) + 5 research candidates.
 
 Core strategies
 ---------------
