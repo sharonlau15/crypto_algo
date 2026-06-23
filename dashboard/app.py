@@ -701,8 +701,13 @@ def update_live_tab(n_intervals):
             wr    = win_rates.get(strat)
             wr_str  = f"{wr*100:.1f}%" if wr is not None and not _pd.isna(wr) else "—"
             wr_color = "#28a745" if (wr or 0) > 0.5 else "#ffc107"
+            # Show "Momentum VT" when the VT overlay is active (scale persisted in state)
+            if strat == "momentum" and "_vt_scale" in active_weights:
+                display_name = "Momentum VT"
+            else:
+                display_name = strat.replace("_", " ").title()
             rows.append(html.Tr([
-                html.Td(strat.replace("_", " ").title(),
+                html.Td(display_name,
                         style={"color": "white", "paddingRight": "24px"}),
                 html.Td(f"{blend:.1f}%",
                         style={"color": "#00b4d8", "textAlign": "right", "paddingRight": "24px"}),
