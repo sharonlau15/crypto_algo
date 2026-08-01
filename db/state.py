@@ -11,10 +11,13 @@ independently — no shared mutable globals between APScheduler threads.
 
 import json
 from contextlib import contextmanager
+from pathlib import Path
 from loguru import logger
 
-from db.connection import get_conn, put_conn
+from db.connection import get_conn, put_conn, db_available
 from config.settings import UNIVERSE, PORTFOLIO_USDT
+
+_STATE_JSON = Path(__file__).parent.parent / "results" / "live_state.json"
 
 
 @contextmanager
@@ -30,11 +33,41 @@ def _db():
         put_conn(conn)
 
 
+def _load_state_json() -> dict | None:
+    """JSON fallback for load_state when PostgreSQL is unavailable."""
+    if not _STATE_JSON.exists():
+        return None
+    try:
+        with open(_STATE_JSON) as f:
+            state = json.load(f)
+        logger.info(f"Loaded state from JSON fallback ({_STATE_JSON})")
+        return state
+    except Exception as e:
+        logger.warning(f"JSON state load failed: {e}")
+        return None
+
+
+def _save_state_json(state: dict):
+    """JSON fallback for save_state when PostgreSQL is unavailable."""
+    try:
+        _STATE_JSON.parent.mkdir(parents=True, exist_ok=True)
+        serialisable = {
+            k: v for k, v in state.items() if not k.startswith("_")
+        }
+        with open(_STATE_JSON, "w") as f:
+            json.dump(serialisable, f, indent=2, default=str)
+    except Exception as e:
+        logger.warning(f"JSON state save failed: {e}")
+
+
 def load_state() -> dict | None:
     """
     Load state from PostgreSQL. Returns None when the DB has no live_state row
     yet (first ever run) so live_engine.py can fall back to Binance bootstrap.
+    Falls back to JSON when PostgreSQL is unavailable (local dev).
     """
+    if not db_available():
+        return _load_state_json()
     try:
         with _db() as conn:
             cur = conn.cursor()
@@ -187,7 +220,10 @@ def load_state() -> dict | None:
 
 
 def save_state(state: dict):
-    """Persist live trading state to PostgreSQL."""
+    """Persist live trading state to PostgreSQL, or JSON when DB is unavailable."""
+    if not db_available():
+        _save_state_json(state)
+        return
     try:
         with _db() as conn:
             cur = conn.cursor()
@@ -318,7 +354,7 @@ def save_state(state: dict):
 
     except Exception as e:
         logger.error(f"DB save_state failed: {e}")
-        raise
+        _save_state_json(state)   # best-effort JSON fallback
 
 
 def load_nav_history_for_report() -> list[dict]:
